@@ -1,0 +1,3503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RehabGlove Monitor — Stroke Rehabilitation Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1e2530;
+    --surface3: #232d3d;
+    --border: rgba(255,255,255,0.07);
+    --border-strong: rgba(255,255,255,0.12);
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --danger: #f85149;
+    --warning: #d29922;
+    --good: #3fb950;
+    --excellent: #58a6ff;
+    --accent: #388bfd;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── HEADER ─────────────────────────────────────────────────────────────── */
+  header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 28px;
+    border-bottom:1px solid var(--border);
+    background:rgba(13,17,23,0.95);
+    position:sticky; top:0; z-index:100;
+    backdrop-filter:blur(12px);
+  }
+  .logo { display:flex; align-items:center; gap:10px; }
+  .logo-icon {
+    width:32px; height:32px; background:linear-gradient(135deg,#388bfd,#3fb950);
+    border-radius:8px; display:flex; align-items:center; justify-content:center;
+    font-size:16px;
+  }
+  .logo-text { font-size:15px; font-weight:600; letter-spacing:-0.01em; }
+  .logo-sub { font-size:11px; color:var(--muted); margin-top:1px; }
+
+  /* TAB NAV */
+  .tab-nav { display:flex; gap:4px; }
+  .tab-btn {
+    background:transparent; border:none; color:var(--muted);
+    padding:8px 16px; border-radius:8px; cursor:pointer;
+    font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500;
+    transition:all 0.18s; letter-spacing:0.01em;
+  }
+  .tab-btn:hover { color:var(--text); background:rgba(255,255,255,0.04); }
+  .tab-btn.active {
+    color:var(--accent); background:rgba(56,139,253,0.12);
+    border:1px solid rgba(56,139,253,0.2);
+  }
+
+  .header-right { display:flex; align-items:center; gap:10px; }
+  .status-dot { width:8px; height:8px; border-radius:50%; background:var(--good); box-shadow:0 0 6px var(--good); animation:pulse 2s infinite; }
+  .status-dot.waiting { background:var(--warning); box-shadow:0 0 6px var(--warning); }
+  .status-dot.offline { background:var(--danger); box-shadow:0 0 6px var(--danger); animation:none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .status-label { font-size:12px; color:var(--muted); }
+  .patient-badge {
+    font-size:12px; padding:4px 10px; border-radius:20px;
+    background:rgba(56,139,253,0.12); color:var(--accent);
+    border:1px solid rgba(56,139,253,0.2);
+  }
+  .demo-badge {
+    font-size:11px; padding:3px 9px; border-radius:20px;
+    background:rgba(210,153,34,0.15); color:var(--warning);
+    border:1px solid rgba(210,153,34,0.25);
+    font-weight:600; letter-spacing:0.05em;
+    display:none;
+  }
+  .demo-badge.active { display:inline-block; }
+
+  /* ── MAIN GRID — Live tab default ───────────────────────────────────────── */
+  main { display:grid; grid-template-columns:1fr 390px; gap:0; height:calc(100vh - 57px); }
+  main.full-width { grid-template-columns:1fr; }
+
+  /* ── TAB CONTAINER VISIBILITY ───────────────────────────────────────────── */
+  .tab-content { display:none; }
+  .tab-content.active { display:contents; }
+  .tab-content-full { display:none; overflow-y:auto; height:calc(100vh - 57px); }
+  .tab-content-full.active { display:block; }
+
+  /* ── 3D CANVAS SECTION ──────────────────────────────────────────────────── */
+  #canvas-section {
+    position:relative; background:var(--bg);
+    border-right:1px solid var(--border);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+  #canvas-section canvas { width:100%!important; height:100%!important; flex:1; }
+
+  /* Waiting overlay when ESP32 not connected */
+  .waiting-overlay {
+    position:absolute; inset:0;
+    background:rgba(13,17,23,0.55); backdrop-filter:blur(2px);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; pointer-events:none; z-index:5;
+    opacity:0; transition:opacity 0.3s;
+  }
+  .waiting-overlay.show { opacity:1; }
+  .bounce-dots { display:flex; gap:6px; }
+  .bounce-dots span {
+    width:10px; height:10px; border-radius:50%;
+    background:var(--warning); opacity:0.5;
+    animation:bounce-dot 1.4s ease-in-out infinite;
+  }
+  .bounce-dots span:nth-child(2) { animation-delay:0.2s; }
+  .bounce-dots span:nth-child(3) { animation-delay:0.4s; }
+  @keyframes bounce-dot {
+    0%,80%,100% { transform:translateY(0); opacity:0.5; }
+    40% { transform:translateY(-8px); opacity:1; }
+  }
+  .waiting-text {
+    font-size:13px; color:var(--warning); text-transform:uppercase;
+    letter-spacing:0.12em; font-family:'DM Mono',monospace;
+  }
+  .waiting-sub { font-size:11px; color:var(--muted); }
+
+  .canvas-overlay-top {
+    position:absolute; top:16px; left:16px; right:16px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    pointer-events:none; z-index:10;
+  }
+  .session-info {
+    background:rgba(13,17,23,0.8); border:1px solid var(--border);
+    border-radius:10px; padding:10px 14px; backdrop-filter:blur(8px);
+  }
+  .session-title { font-size:11px; color:var(--muted); font-weight:500; letter-spacing:0.06em; text-transform:uppercase; }
+  .session-value { font-size:22px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--text); margin-top:2px; }
+  .session-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+  .gesture-chip {
+    background:rgba(13,17,23,0.8); border:1px solid var(--border);
+    border-radius:10px; padding:8px 14px; backdrop-filter:blur(8px); text-align:right;
+  }
+  .gesture-name { font-size:16px; font-weight:600; color:var(--text); }
+  .gesture-category { font-size:11px; color:var(--muted); margin-top:2px; }
+
+  .finger-labels {
+    position:absolute; bottom:18px; left:0; right:0;
+    display:flex; justify-content:center; gap:6px;
+    pointer-events:none; z-index:10;
+  }
+  .flabel {
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    background:rgba(13,17,23,0.75); border:1px solid var(--border);
+    border-radius:8px; padding:6px 10px; backdrop-filter:blur(6px);
+    min-width:70px;
+  }
+  .flabel-name { font-size:10px; color:var(--muted); font-weight:500; letter-spacing:0.04em; text-transform:uppercase; }
+  .flabel-val { font-size:18px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .flabel-status { font-size:9px; font-weight:500; letter-spacing:0.04em; text-transform:uppercase; }
+  .flabel.poor .flabel-val, .flabel.poor .flabel-status { color:var(--danger); }
+  .flabel.fair .flabel-val, .flabel.fair .flabel-status { color:var(--warning); }
+  .flabel.good .flabel-val, .flabel.good .flabel-status { color:var(--good); }
+  .flabel.excellent .flabel-val, .flabel.excellent .flabel-status { color:var(--excellent); }
+
+  /* ── RIGHT PANEL ────────────────────────────────────────────────────────── */
+  #right-panel {
+    background:var(--surface); overflow-y:auto;
+    display:flex; flex-direction:column; gap:0;
+  }
+  .panel-section {
+    padding:16px 18px;
+    border-bottom:1px solid var(--border);
+  }
+  .panel-section-header {
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:12px;
+  }
+  .panel-section-title {
+    font-size:11px; color:var(--muted); font-weight:500;
+    text-transform:uppercase; letter-spacing:0.06em;
+  }
+  .clear-btn {
+    background:rgba(248,81,73,0.1); border:1px solid rgba(248,81,73,0.2);
+    color:var(--danger); padding:3px 9px; border-radius:6px;
+    font-size:10px; font-family:'DM Mono',monospace; cursor:pointer;
+    transition:all 0.15s; font-weight:500;
+  }
+  .clear-btn:hover { background:rgba(248,81,73,0.18); }
+
+  /* GRIP CARDS */
+  .grip-cards { display:flex; flex-direction:column; gap:8px; }
+  .grip-card {
+    background:var(--surface2); border-radius:10px;
+    border:1px solid var(--border); padding:11px 14px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .grip-icon { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+  .grip-info { flex:1; min-width:0; }
+  .grip-label { font-size:12px; color:var(--muted); font-weight:500; margin-bottom:2px; }
+  .grip-pct-row { display:flex; align-items:baseline; gap:6px; }
+  .grip-pct { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; transition:color 0.4s; }
+  .grip-unit { font-size:11px; color:var(--muted); }
+  .grip-bar-bg { height:5px; background:rgba(255,255,255,0.07); border-radius:3px; margin-top:5px; overflow:hidden; }
+  .grip-bar { height:100%; border-radius:3px; transition:width 0.4s cubic-bezier(0.4,0,0.2,1); }
+  .grip-badge { font-size:10px; font-weight:600; padding:3px 8px; border-radius:20px; letter-spacing:0.04em; flex-shrink:0; transition:all 0.3s; }
+  .badge-poor      { background:rgba(248,81,73,0.15);  color:var(--danger);    border:1px solid rgba(248,81,73,0.2); }
+  .badge-fair      { background:rgba(210,153,34,0.15); color:var(--warning);   border:1px solid rgba(210,153,34,0.2); }
+  .badge-good      { background:rgba(63,185,80,0.15);  color:var(--good);      border:1px solid rgba(63,185,80,0.2); }
+  .badge-excellent { background:rgba(88,166,255,0.15); color:var(--excellent); border:1px solid rgba(88,166,255,0.2); }
+
+  /* OVERALL SCORE */
+  .overall-score { background:var(--surface2); border-radius:12px; border:1px solid var(--border); padding:16px; display:flex; align-items:center; gap:14px; }
+  .score-ring { position:relative; width:72px; height:72px; flex-shrink:0; }
+  .score-ring svg { width:72px; height:72px; transform:rotate(-90deg); }
+  .score-ring-val { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:18px; font-weight:700; font-variant-numeric:tabular-nums; transition:color 0.4s; }
+  .score-right { flex:1; }
+  .score-label { font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .score-title { font-size:20px; font-weight:700; }
+  .score-desc { font-size:11px; color:var(--muted); margin-top:3px; line-height:1.5; }
+
+  /* RECOMMENDATIONS */
+  .reco-list { display:flex; flex-direction:column; gap:8px; }
+  .reco-card {
+    background:var(--surface2); border:1px solid var(--border);
+    border-left:3px solid var(--accent);
+    border-radius:8px; padding:10px 12px;
+    transition:all 0.2s;
+  }
+  .reco-card.priority-high   { border-left-color:var(--danger); }
+  .reco-card.priority-medium { border-left-color:var(--warning); }
+  .reco-card.priority-low    { border-left-color:var(--good); }
+  .reco-id { font-size:9px; font-family:'DM Mono',monospace; color:var(--muted); letter-spacing:0.08em; }
+  .reco-text { font-size:12px; color:var(--text); margin-top:3px; line-height:1.4; }
+  .reco-empty { text-align:center; padding:20px; color:var(--muted); font-size:12px; font-style:italic; }
+
+  /* IMU DATA */
+  .imu-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  .imu-cell { background:var(--surface2); border-radius:8px; border:1px solid var(--border); padding:8px 10px; text-align:center; }
+  .imu-lbl { font-size:10px; color:var(--muted); font-weight:500; text-transform:uppercase; letter-spacing:0.05em; }
+  .imu-val { font-size:16px; font-weight:600; font-variant-numeric:tabular-nums; font-family:'DM Mono',monospace; margin-top:2px; transition:color 0.3s; }
+
+  /* SLIDERS (Demo Mode) */
+  .slider-section { display:flex; flex-direction:column; gap:10px; }
+  .slider-section.disabled { opacity:0.4; pointer-events:none; }
+  .slider-row { display:flex; flex-direction:column; gap:4px; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:10px 14px; }
+  .slider-header { display:flex; align-items:center; justify-content:space-between; }
+  .slider-finger-name { font-size:13px; font-weight:500; display:flex; align-items:center; gap:8px; }
+  .slider-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .slider-angle { font-size:12px; font-family:'DM Mono',monospace; color:var(--muted); }
+  .slider-track {
+    -webkit-appearance:none; appearance:none;
+    width:100%; height:6px; border-radius:3px;
+    background:rgba(255,255,255,0.08); outline:none; cursor:pointer;
+    margin-top:4px;
+  }
+  .slider-track::-webkit-slider-thumb {
+    -webkit-appearance:none; appearance:none;
+    width:18px; height:18px; border-radius:50%;
+    cursor:pointer; border:2px solid var(--bg);
+    box-shadow:0 0 0 1px rgba(255,255,255,0.15);
+  }
+  .slider-track::-moz-range-thumb { width:18px; height:18px; border-radius:50%; cursor:pointer; border:2px solid var(--bg); }
+  .slider-hint { font-size:10px; color:rgba(125,133,144,0.6); margin-top:2px; }
+  .reset-btn { width:100%; padding:9px; border-radius:8px; background:rgba(248,81,73,0.1); border:1px solid rgba(248,81,73,0.25); color:var(--danger); font-family:'DM Sans',sans-serif; font-size:12px; font-weight:500; cursor:pointer; transition:all 0.15s; letter-spacing:0.02em; }
+  .reset-btn:hover { background:rgba(248,81,73,0.18); }
+
+  /* LEGEND */
+  .legend { display:flex; flex-direction:column; gap:5px; }
+  .legend-row { display:flex; align-items:center; gap:8px; }
+  .legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .legend-range { font-size:12px; font-family:'DM Mono',monospace; color:var(--muted); width:70px; }
+  .legend-desc { font-size:11px; color:var(--text); }
+
+  /* FEED */
+  .feed { font-family:'DM Mono',monospace; font-size:11px; color:var(--muted); line-height:1.7; background:var(--bg); border-radius:8px; padding:10px 12px; border:1px solid var(--border); max-height:120px; overflow-y:auto; }
+  .feed-line { margin-bottom:1px; animation:fadein 0.25s; }
+  .feed-ts { color:rgba(56,139,253,0.7); }
+  .feed-key { color:var(--good); }
+  .feed-empty { color:rgba(125,133,144,0.5); font-style:italic; }
+  @keyframes fadein { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }
+
+  /* ── HISTORY TAB ────────────────────────────────────────────────────────── */
+  .page-wrap { padding:24px 32px; max-width:1400px; margin:0 auto; }
+  .page-title { font-size:22px; font-weight:600; margin-bottom:4px; }
+  .page-sub { font-size:13px; color:var(--muted); margin-bottom:24px; }
+
+  .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px; }
+  .kpi-card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; padding:16px 18px;
+  }
+  .kpi-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; }
+  .kpi-value { font-size:28px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .kpi-trend { font-size:11px; color:var(--good); margin-top:4px; }
+
+  .chart-section {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; padding:18px 20px; margin-bottom:18px;
+  }
+  .chart-title-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .chart-title { font-size:13px; font-weight:600; }
+  .range-selector { display:flex; gap:4px; }
+  .range-btn {
+    background:transparent; border:1px solid var(--border);
+    color:var(--muted); padding:5px 12px; border-radius:6px;
+    font-size:11px; cursor:pointer; transition:all 0.18s;
+  }
+  .range-btn:hover { color:var(--text); border-color:var(--border-strong); }
+  .range-btn.active { color:var(--accent); border-color:var(--accent); background:rgba(56,139,253,0.08); }
+  .chart-canvas-wrap { position:relative; height:240px; }
+
+  /* HEATMAP */
+  .heatmap-wrap { display:flex; flex-direction:column; gap:6px; }
+  .heatmap-grid { display:grid; grid-template-columns:repeat(15, 1fr); gap:3px; }
+  .heatmap-cell {
+    aspect-ratio:1; border-radius:3px;
+    background:rgba(255,255,255,0.04);
+    transition:transform 0.15s;
+    cursor:pointer;
+  }
+  .heatmap-cell:hover { transform:scale(1.2); z-index:5; position:relative; }
+  .heatmap-legend { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); margin-top:8px; }
+  .heatmap-legend-bar { display:flex; gap:2px; }
+  .heatmap-legend-bar > div { width:12px; height:12px; border-radius:2px; }
+
+  /* PER-FINGER CHART */
+  .finger-stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  .finger-stat {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:10px; padding:12px 14px;
+  }
+  .finger-stat-name { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }
+  .finger-stat-val { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:4px; }
+  .finger-stat-trend { font-size:10px; color:var(--good); margin-top:2px; }
+
+  /* ── SESSION LOG TAB ────────────────────────────────────────────────────── */
+  .toolbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; gap:12px; flex-wrap:wrap; }
+  .toolbar-left { display:flex; align-items:center; gap:14px; }
+  .session-count { font-size:14px; font-weight:600; }
+  .session-helper { font-size:12px; color:var(--muted); }
+  .toolbar-right { display:flex; gap:8px; }
+  .btn {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:7px 14px; border-radius:8px;
+    font-family:'DM Sans',sans-serif; font-size:12px; font-weight:500;
+    cursor:pointer; transition:all 0.15s; letter-spacing:0.02em;
+    border:1px solid var(--border);
+    background:var(--surface); color:var(--muted);
+  }
+  .btn:hover { color:var(--text); border-color:var(--border-strong); background:var(--surface2); }
+  .btn:disabled { opacity:0.4; cursor:not-allowed; }
+  .btn-danger {
+    background:rgba(248,81,73,0.1); border-color:rgba(248,81,73,0.25); color:var(--danger);
+  }
+  .btn-danger:hover { background:rgba(248,81,73,0.18); border-color:rgba(248,81,73,0.4); color:var(--danger); }
+  .btn-icon { font-size:13px; }
+
+  .data-table-wrap {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; overflow:hidden;
+  }
+  .data-table { width:100%; border-collapse:collapse; }
+  .data-table th {
+    background:rgba(13,17,23,0.4);
+    padding:10px 14px; text-align:left;
+    font-size:10px; color:var(--muted); font-weight:500;
+    text-transform:uppercase; letter-spacing:0.06em;
+    border-bottom:1px solid var(--border);
+    cursor:pointer; user-select:none;
+    transition:color 0.15s;
+  }
+  .data-table th:hover { color:var(--text); }
+  .data-table th.sort-active { color:var(--accent); }
+  .data-table td {
+    padding:10px 14px;
+    border-bottom:1px solid rgba(255,255,255,0.03);
+    font-size:12px;
+  }
+  .data-table tbody tr { cursor:pointer; transition:background 0.15s; }
+  .data-table tbody tr:hover { background:rgba(255,255,255,0.02); }
+  .data-table tbody tr.selected { background:rgba(56,139,253,0.06); }
+  .mono { font-family:'DM Mono',monospace; font-variant-numeric:tabular-nums; }
+  .row-trash {
+    opacity:0; color:var(--muted); cursor:pointer; padding:4px;
+    border-radius:4px; background:transparent; border:none;
+    transition:all 0.15s; font-size:13px;
+  }
+  .data-table tbody tr:hover .row-trash { opacity:1; }
+  .row-trash:hover { color:var(--danger); background:rgba(248,81,73,0.1); }
+  .empty-state { text-align:center; padding:60px 20px; color:var(--muted); }
+  .empty-state-icon { font-size:32px; margin-bottom:10px; opacity:0.4; }
+  .empty-state-text { font-size:13px; }
+  .empty-state-sub { font-size:11px; opacity:0.7; margin-top:4px; }
+
+  /* DETAIL PANEL */
+  .detail-panel {
+    position:fixed; top:57px; right:0; bottom:0; width:400px;
+    background:var(--surface); border-left:1px solid var(--border);
+    transform:translateX(100%); transition:transform 0.25s cubic-bezier(0.16,1,0.3,1);
+    z-index:50; overflow-y:auto;
+  }
+  .detail-panel.open { transform:translateX(0); }
+  .detail-header {
+    position:sticky; top:0; background:rgba(22,27,34,0.95);
+    backdrop-filter:blur(12px); padding:14px 18px;
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between; z-index:10;
+  }
+  .detail-title { font-size:13px; font-weight:600; }
+  .detail-actions { display:flex; gap:8px; }
+  .icon-btn {
+    background:transparent; border:none; color:var(--muted);
+    width:28px; height:28px; border-radius:6px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition:all 0.15s;
+  }
+  .icon-btn:hover { background:rgba(255,255,255,0.05); color:var(--text); }
+  .icon-btn-danger:hover { background:rgba(248,81,73,0.12); color:var(--danger); }
+  .detail-body { padding:18px; }
+  .detail-section { margin-bottom:18px; }
+  .detail-section-title { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; }
+  .detail-info-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .detail-info-cell { background:rgba(13,17,23,0.5); border-radius:8px; padding:8px 12px; }
+  .detail-info-label { font-size:10px; color:var(--muted); }
+  .detail-info-value { font-size:13px; margin-top:2px; }
+
+  /* MODAL */
+  .modal-backdrop {
+    position:fixed; inset:0; background:rgba(0,0,0,0.5);
+    backdrop-filter:blur(4px); z-index:200;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0; pointer-events:none; transition:opacity 0.2s;
+  }
+  .modal-backdrop.open { opacity:1; pointer-events:auto; }
+  .modal {
+    background:rgba(22,27,34,0.95); backdrop-filter:blur(12px);
+    border:1px solid var(--border-strong); border-radius:12px;
+    padding:20px 22px; max-width:400px; width:90%;
+    box-shadow:0 10px 40px rgba(0,0,0,0.5);
+  }
+  .modal-header { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+  .modal-icon-wrap {
+    width:36px; height:36px; border-radius:10px;
+    background:rgba(248,81,73,0.15); border:1px solid rgba(248,81,73,0.25);
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px;
+  }
+  .modal-title { font-size:14px; font-weight:600; }
+  .modal-message { font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:18px; }
+  .modal-actions { display:flex; justify-content:flex-end; gap:8px; }
+
+  /* ── USB SERIAL CONNECTION ──────────────────────────────────────────────── */
+  .usb-btn {
+    display:flex; align-items:center; gap:6px;
+    background:rgba(56,139,253,0.1); border:1px solid rgba(56,139,253,0.25);
+    color:var(--accent); padding:5px 12px; border-radius:8px;
+    font-family:'DM Sans',sans-serif; font-size:12px; font-weight:500;
+    cursor:pointer; transition:all 0.15s;
+  }
+  .usb-btn:hover { background:rgba(56,139,253,0.18); }
+  .usb-btn.connected {
+    background:rgba(63,185,80,0.12); border-color:rgba(63,185,80,0.3);
+    color:var(--good);
+  }
+  .usb-btn.connected:hover { background:rgba(63,185,80,0.2); }
+  .usb-btn.unsupported {
+    background:rgba(255,255,255,0.04); border-color:var(--border);
+    color:var(--muted); cursor:not-allowed; opacity:0.5;
+  }
+  .usb-btn-icon { font-size:14px; }
+
+  /* Mode-specific status colors */
+  .status-dot.usb { background:var(--good); box-shadow:0 0 6px var(--good); }
+  .status-dot.firebase { background:var(--accent); box-shadow:0 0 6px var(--accent); }
+
+  /* USB write button in WiFi modal */
+  .usb-write-section {
+    background:rgba(56,139,253,0.06); border:1px solid rgba(56,139,253,0.2);
+    border-radius:10px; padding:14px 16px; margin-top:14px;
+  }
+  .usb-write-status {
+    font-size:11px; color:var(--muted); margin-top:8px;
+    font-family:'DM Mono',monospace;
+  }
+  .usb-write-status.success { color:var(--good); }
+  .usb-write-status.error { color:var(--danger); }
+
+  /* ── PATIENT MANAGEMENT ─────────────────────────────────────────────────── */
+  .patient-grid {
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));
+    gap:14px;
+  }
+  .patient-card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; padding:16px 18px;
+    transition:all 0.2s; position:relative;
+  }
+  .patient-card:hover { border-color:var(--border-strong); transform:translateY(-1px); }
+  .patient-card.active {
+    border-color:var(--accent);
+    background:linear-gradient(135deg, rgba(56,139,253,0.08), var(--surface));
+  }
+  .patient-card.active::before {
+    content:'●  ACTIVE'; position:absolute; top:10px; right:14px;
+    font-size:9px; color:var(--accent); font-weight:600; letter-spacing:0.1em;
+  }
+  .patient-name { font-size:16px; font-weight:600; margin-bottom:4px; }
+  .patient-id { font-size:11px; color:var(--muted); font-family:'DM Mono',monospace; margin-bottom:12px; }
+  .patient-info-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+  .patient-info-cell { font-size:11px; }
+  .patient-info-label { color:var(--muted); }
+  .patient-info-value { color:var(--text); margin-top:2px; }
+  .patient-diagnosis {
+    background:rgba(255,255,255,0.04); border-radius:6px;
+    padding:8px 10px; font-size:11px; color:var(--muted);
+    margin-bottom:12px; line-height:1.4;
+    border-left:2px solid var(--accent);
+  }
+  .patient-actions { display:flex; gap:6px; }
+  .patient-actions .btn { flex:1; padding:6px 10px; font-size:11px; }
+  .btn-primary {
+    background:rgba(56,139,253,0.1); border-color:rgba(56,139,253,0.25); color:var(--accent);
+  }
+  .btn-primary:hover { background:rgba(56,139,253,0.2); border-color:rgba(56,139,253,0.4); color:var(--accent); }
+  .btn-success {
+    background:rgba(63,185,80,0.1); border-color:rgba(63,185,80,0.25); color:var(--good);
+  }
+  .btn-success:hover { background:rgba(63,185,80,0.2); border-color:rgba(63,185,80,0.4); color:var(--good); }
+
+  /* PATIENT FORM */
+  .form-group { margin-bottom:14px; }
+  .form-label {
+    display:block; font-size:11px; color:var(--muted);
+    text-transform:uppercase; letter-spacing:0.05em;
+    margin-bottom:6px; font-weight:500;
+  }
+  .form-input, .form-select, .form-textarea {
+    width:100%; padding:9px 12px; border-radius:8px;
+    background:var(--surface2); border:1px solid var(--border);
+    color:var(--text); font-family:'DM Sans',sans-serif; font-size:13px;
+    outline:none; transition:border-color 0.15s;
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus { border-color:var(--accent); }
+  .form-textarea { resize:vertical; min-height:60px; font-family:'DM Sans',sans-serif; }
+  .form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .form-hint { font-size:10px; color:var(--muted); margin-top:4px; }
+  .modal-form { max-width:520px; }
+
+  /* Active patient header badge */
+  .patient-badge-active {
+    display:flex; align-items:center; gap:6px;
+    font-size:12px; padding:4px 12px; border-radius:20px;
+    background:rgba(56,139,253,0.12); color:var(--accent);
+    border:1px solid rgba(56,139,253,0.2);
+    cursor:pointer; transition:all 0.15s;
+  }
+  .patient-badge-active:hover { background:rgba(56,139,253,0.2); }
+  .patient-badge-active.none { color:var(--muted); background:rgba(255,255,255,0.04); border-color:var(--border); }
+
+  /* Empty state for patients */
+  .patients-empty {
+    text-align:center; padding:60px 20px; color:var(--muted);
+    border:2px dashed var(--border); border-radius:12px;
+  }
+  .patients-empty-icon { font-size:48px; margin-bottom:12px; opacity:0.5; }
+  .patients-empty-text { font-size:14px; margin-bottom:4px; }
+  .patients-empty-sub { font-size:12px; opacity:0.7; margin-bottom:16px; }
+
+  /* ── CALIBRATION SYSTEM ─────────────────────────────────────────────────── */
+  .calib-warning-banner {
+    background:rgba(210,153,34,0.1); border:1px solid rgba(210,153,34,0.3);
+    border-radius:10px; padding:10px 14px; margin:14px 18px 0;
+    display:flex; align-items:center; gap:10px; font-size:12px;
+    color:var(--warning);
+  }
+  .calib-warning-banner.hide { display:none; }
+  .calib-warning-banner button {
+    margin-left:auto; background:rgba(210,153,34,0.2);
+    border:1px solid rgba(210,153,34,0.4); color:var(--warning);
+    padding:5px 12px; border-radius:6px; font-size:11px; font-weight:500;
+    cursor:pointer; transition:all 0.15s;
+  }
+  .calib-warning-banner button:hover { background:rgba(210,153,34,0.3); }
+
+  .calib-modal {
+    background:rgba(22,27,34,0.97); backdrop-filter:blur(16px);
+    border:1px solid var(--border-strong); border-radius:14px;
+    padding:24px 28px; max-width:480px; width:90%;
+    box-shadow:0 20px 60px rgba(0,0,0,0.6);
+  }
+  .calib-title {
+    font-size:18px; font-weight:600; text-align:center; margin-bottom:6px;
+  }
+  .calib-subtitle {
+    font-size:12px; color:var(--muted); text-align:center; margin-bottom:24px;
+  }
+  .calib-steps {
+    display:flex; flex-direction:column; gap:8px; margin-bottom:20px;
+  }
+  .calib-step {
+    display:flex; align-items:center; gap:14px; padding:12px 16px;
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:10px; transition:all 0.4s;
+    opacity:0.5;
+  }
+  .calib-step.active {
+    border-color:var(--accent);
+    background:linear-gradient(135deg, rgba(56,139,253,0.12), var(--surface2));
+    opacity:1; transform:scale(1.02);
+    box-shadow:0 0 24px rgba(56,139,253,0.15);
+  }
+  .calib-step.done {
+    opacity:0.7; border-color:rgba(63,185,80,0.25);
+    background:rgba(63,185,80,0.05);
+  }
+  .calib-step.failed {
+    border-color:rgba(248,81,73,0.4);
+    background:rgba(248,81,73,0.08);
+    opacity:1;
+  }
+  .calib-step-icon {
+    width:36px; height:36px; border-radius:10px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px; background:var(--bg);
+    transition:all 0.3s;
+  }
+  .calib-step.active .calib-step-icon {
+    background:var(--accent); animation:calib-pulse 1.4s ease-in-out infinite;
+  }
+  .calib-step.done .calib-step-icon { background:var(--good); }
+  .calib-step.failed .calib-step-icon { background:var(--danger); }
+  @keyframes calib-pulse {
+    0%, 100% { transform:scale(1); box-shadow:0 0 0 0 rgba(56,139,253,0.4); }
+    50% { transform:scale(1.08); box-shadow:0 0 0 8px rgba(56,139,253,0); }
+  }
+  .calib-step-content { flex:1; }
+  .calib-step-title { font-size:13px; font-weight:500; }
+  .calib-step-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+  .calib-countdown {
+    font-size:24px; font-weight:700; font-family:'DM Mono',monospace;
+    color:var(--accent); min-width:44px; text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  .calib-progress-bar {
+    height:4px; background:rgba(255,255,255,0.08); border-radius:2px;
+    overflow:hidden; margin-bottom:18px;
+  }
+  .calib-progress-fill {
+    height:100%; background:linear-gradient(90deg, var(--accent), var(--good));
+    width:0%; transition:width 0.3s ease;
+    border-radius:2px;
+  }
+  .calib-buzzer-hint {
+    background:rgba(56,139,253,0.06); border:1px solid rgba(56,139,253,0.15);
+    border-radius:8px; padding:10px 12px; font-size:11px; color:var(--accent);
+    line-height:1.5; margin-bottom:18px; display:flex; gap:8px;
+  }
+
+  /* Calibration status badge on cards */
+  .calib-badge {
+    display:inline-flex; align-items:center; gap:4px;
+    font-size:10px; padding:3px 8px; border-radius:6px;
+    font-weight:500; margin-left:6px;
+  }
+  .calib-badge.calibrated { background:rgba(63,185,80,0.12); color:var(--good); border:1px solid rgba(63,185,80,0.25); }
+  .calib-badge.uncalibrated { background:rgba(210,153,34,0.12); color:var(--warning); border:1px solid rgba(210,153,34,0.25); }
+
+  /* SCROLLBAR */
+  *::-webkit-scrollbar { width:6px; height:6px; }
+  *::-webkit-scrollbar-track { background:transparent; }
+  *::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.08); border-radius:3px; }
+  *::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,0.15); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🤚</div>
+    <div>
+      <div class="logo-text">RehabGlove Monitor</div>
+      <div class="logo-sub">Stroke Rehabilitation — Group HG5, UTHM</div>
+    </div>
+  </div>
+
+  <div class="tab-nav">
+    <button class="tab-btn active" data-tab="live">Live Monitor</button>
+    <button class="tab-btn" data-tab="history">Patient History</button>
+    <button class="tab-btn" data-tab="sessions">Session Log</button>
+    <button class="tab-btn" data-tab="patients">Patients</button>
+  </div>
+
+  <div class="header-right">
+    <button class="usb-btn" id="usb-connect-btn" onclick="toggleSerialConnection()" title="Connect to ESP32 via USB cable">
+      <span class="usb-btn-icon">🔌</span>
+      <span id="usb-btn-label">Connect USB Glove</span>
+    </button>
+    <div class="demo-badge" id="demo-badge">DEMO MODE</div>
+    <div class="status-dot waiting" id="status-dot"></div>
+    <span class="status-label" id="status-label">Offline</span>
+    <div class="patient-badge-active none" id="active-patient-badge" title="Click to change active patient">
+      <span>👤</span>
+      <span id="active-patient-name">No Patient Selected</span>
+    </div>
+  </div>
+</header>
+
+<!-- ───────── TAB 1: LIVE MONITOR ───────── -->
+<main id="live-main">
+  <div class="tab-content active" data-tab-content="live">
+
+    <!-- Calibration warning banner (shown when active patient not calibrated) -->
+    <div class="calib-warning-banner hide" id="calib-warning-banner" style="grid-column:1/-1">
+      <span>⚠️</span>
+      <span><strong>Calibration needed</strong> — active patient has not been calibrated. Grip readings may be inaccurate.</span>
+      <button onclick="triggerCalibration()">📐 Calibrate Now</button>
+    </div>
+
+    <section id="canvas-section">
+      <canvas id="three-canvas"></canvas>
+
+      <!-- Waiting overlay (shown when ESP32 not connected) -->
+      <div class="waiting-overlay show" id="waiting-overlay">
+        <div class="bounce-dots"><span></span><span></span><span></span></div>
+        <div class="waiting-text" id="waiting-text">Waiting for ESP32...</div>
+        <div class="waiting-sub" id="waiting-sub">Power on glove and connect to hotspot</div>
+      </div>
+
+      <div class="canvas-overlay-top">
+        <div class="session-info">
+          <div class="session-title">Overall Grip Strength</div>
+          <div class="session-value" id="ov-score">—</div>
+          <div class="session-sub">Average across 4 fingers</div>
+        </div>
+        <div class="gesture-chip">
+          <div class="gesture-name" id="gesture-name-top">Ready</div>
+          <div class="gesture-category" id="gesture-cat">Awaiting flex data</div>
+        </div>
+      </div>
+
+      <div class="finger-labels">
+        <div class="flabel" id="lbl-index"><span class="flabel-name">Index</span><span class="flabel-val" id="lv-index">—</span><span class="flabel-status" id="ls-index">—</span></div>
+        <div class="flabel" id="lbl-middle"><span class="flabel-name">Middle</span><span class="flabel-val" id="lv-middle">—</span><span class="flabel-status" id="ls-middle">—</span></div>
+        <div class="flabel" id="lbl-ring"><span class="flabel-name">Ring</span><span class="flabel-val" id="lv-ring">—</span><span class="flabel-status" id="ls-ring">—</span></div>
+        <div class="flabel" id="lbl-pinky"><span class="flabel-name">Pinky</span><span class="flabel-val" id="lv-pinky">—</span><span class="flabel-status" id="ls-pinky">—</span></div>
+      </div>
+    </section>
+
+    <aside id="right-panel">
+      <div class="panel-section">
+        <div class="panel-section-header">
+          <div class="panel-section-title">Grip Strength — Per Finger</div>
+        </div>
+        <div class="grip-cards" id="grip-cards"></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-section-header"><div class="panel-section-title">Session Score</div></div>
+        <div class="overall-score">
+          <div class="score-ring">
+            <svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="36" cy="36" r="30" stroke="rgba(255,255,255,0.06)" stroke-width="6"/>
+              <circle id="ring-circle" cx="36" cy="36" r="30" stroke="#3fb950" stroke-width="6"
+                stroke-linecap="round" stroke-dasharray="188.5" stroke-dashoffset="188.5"
+                style="transition:stroke-dashoffset 0.6s cubic-bezier(0.4,0,0.2,1), stroke 0.4s;"/>
+            </svg>
+            <div class="score-ring-val" id="ring-val">0</div>
+          </div>
+          <div class="score-right">
+            <div class="score-label">Recovery index</div>
+            <div class="score-title" id="score-title">Ready</div>
+            <div class="score-desc" id="score-desc">Power on the smart glove to begin a session.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-section-header"><div class="panel-section-title">Clinical Recommendations</div></div>
+        <div class="reco-list" id="reco-list">
+          <div class="reco-empty">No data yet — recommendations appear during live session.</div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-section-header"><div class="panel-section-title">MPU6050 — Wrist Orientation</div></div>
+        <div class="imu-grid">
+          <div class="imu-cell"><div class="imu-lbl">Pitch</div><div class="imu-val" id="imu-pitch">0°</div></div>
+          <div class="imu-cell"><div class="imu-lbl">Roll</div><div class="imu-val" id="imu-roll">0°</div></div>
+          <div class="imu-cell"><div class="imu-lbl">Yaw</div><div class="imu-val" id="imu-yaw">0°</div></div>
+          <div class="imu-cell"><div class="imu-lbl">Acc X</div><div class="imu-val" id="imu-ax">0.0</div></div>
+          <div class="imu-cell"><div class="imu-lbl">Acc Y</div><div class="imu-val" id="imu-ay">9.8</div></div>
+          <div class="imu-cell"><div class="imu-lbl">Acc Z</div><div class="imu-val" id="imu-az">0.0</div></div>
+        </div>
+      </div>
+
+      <div class="panel-section" id="slider-panel">
+        <div class="panel-section-header">
+          <div class="panel-section-title">Manual Demo Controls</div>
+          <button class="clear-btn" id="save-session-btn" style="background:rgba(63,185,80,0.1);border-color:rgba(63,185,80,0.25);color:var(--good)">💾 Save Session</button>
+        </div>
+        <div class="slider-section" id="slider-section"></div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button class="reset-btn" id="reset-btn" style="flex:1">↺ Reset All Fingers</button>
+        </div>
+        <div style="margin-top:8px;font-size:10px;color:var(--muted);text-align:center;line-height:1.4">
+          Move sliders → 3D hand animates → data flows to Live → click "Save Session" to archive
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-section-header"><div class="panel-section-title">Clinical Grip Strength Scale</div></div>
+        <div class="legend">
+          <div class="legend-row"><div class="legend-dot" style="background:var(--danger)"></div><div class="legend-range">0 – 40%</div><div class="legend-desc"><strong>Poor</strong> — Severely impaired, needs support</div></div>
+          <div class="legend-row"><div class="legend-dot" style="background:var(--warning)"></div><div class="legend-range">40 – 69%</div><div class="legend-desc"><strong>Fair</strong> — Partial function, active rehab needed</div></div>
+          <div class="legend-row"><div class="legend-dot" style="background:var(--good)"></div><div class="legend-range">70 – 89%</div><div class="legend-desc"><strong>Good</strong> — Functional grip, near normal</div></div>
+          <div class="legend-row"><div class="legend-dot" style="background:var(--excellent)"></div><div class="legend-range">90 – 100%</div><div class="legend-desc"><strong>Excellent</strong> — Full strength restored</div></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-section-header">
+          <div class="panel-section-title">ESP32 Serial Output</div>
+          <button class="clear-btn" id="clear-feed-btn">Clear</button>
+        </div>
+        <div class="feed" id="feed"><div class="feed-empty">Waiting for serial output...</div></div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<!-- ───────── TAB 2: PATIENT HISTORY ───────── -->
+<div class="tab-content-full" data-tab-content="history">
+  <div class="page-wrap">
+    <div class="page-title">Patient History</div>
+    <div class="page-sub">Recovery progress and per-finger trends over time</div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-label">Total Sessions</div><div class="kpi-value" id="kpi-total">0</div><div class="kpi-trend" id="kpi-total-trend">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Avg Grip</div><div class="kpi-value" id="kpi-avg">0%</div><div class="kpi-trend" id="kpi-avg-trend">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Best Session</div><div class="kpi-value" id="kpi-best">0%</div><div class="kpi-trend" id="kpi-best-trend">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Days Active</div><div class="kpi-value" id="kpi-days">0</div><div class="kpi-trend" id="kpi-days-trend">—</div></div>
+    </div>
+
+    <div class="chart-section">
+      <div class="chart-title-row">
+        <div class="chart-title">Recovery Trend</div>
+        <div class="range-selector">
+          <button class="range-btn" data-range="7">7 days</button>
+          <button class="range-btn active" data-range="30">30 days</button>
+          <button class="range-btn" data-range="90">90 days</button>
+        </div>
+      </div>
+      <div class="chart-canvas-wrap"><canvas id="trend-chart"></canvas></div>
+    </div>
+
+    <div class="chart-section">
+      <div class="chart-title-row"><div class="chart-title">Per-Finger Averages</div></div>
+      <div class="finger-stat-grid" id="finger-stat-grid"></div>
+    </div>
+
+    <div class="chart-section">
+      <div class="chart-title-row"><div class="chart-title">Session Heatmap (last 75 days)</div></div>
+      <div class="heatmap-wrap">
+        <div class="heatmap-grid" id="heatmap-grid"></div>
+        <div class="heatmap-legend">
+          <span>Less</span>
+          <div class="heatmap-legend-bar">
+            <div style="background:rgba(255,255,255,0.04)"></div>
+            <div style="background:rgba(63,185,80,0.25)"></div>
+            <div style="background:rgba(63,185,80,0.5)"></div>
+            <div style="background:rgba(63,185,80,0.75)"></div>
+            <div style="background:rgba(63,185,80,1)"></div>
+          </div>
+          <span>More</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────── TAB 3: SESSION LOG ───────── -->
+<div class="tab-content-full" data-tab-content="sessions">
+  <div class="page-wrap">
+    <div class="page-title">Session Log</div>
+    <div class="page-sub">All recorded therapy sessions with per-finger metrics</div>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <span class="session-count" id="session-count">0 sessions</span>
+        <span class="session-helper" id="session-helper">Click a row to inspect</span>
+      </div>
+      <div class="toolbar-right">
+        <button class="btn btn-danger" id="clear-all-btn"><span class="btn-icon">🗑️</span> Clear All Sessions</button>
+        <button class="btn" id="export-csv-btn"><span class="btn-icon">📥</span> Export CSV</button>
+      </div>
+    </div>
+
+    <div class="data-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th data-sort="start_time">Date / Time</th>
+            <th data-sort="duration">Duration</th>
+            <th data-sort="exercise">Exercise</th>
+            <th data-sort="index" class="mono">Index</th>
+            <th data-sort="middle" class="mono">Middle</th>
+            <th data-sort="ring" class="mono">Ring</th>
+            <th data-sort="pinky" class="mono">Pinky</th>
+            <th data-sort="avg_grip" class="mono">Avg Grip</th>
+            <th>Category</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="sessions-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL PANEL (slide-out) -->
+<div class="detail-panel" id="detail-panel">
+  <div class="detail-header">
+    <div class="detail-title">Session Details</div>
+    <div class="detail-actions">
+      <button class="icon-btn icon-btn-danger" id="detail-delete-btn" title="Delete this session">🗑️</button>
+      <button class="icon-btn" id="detail-close-btn" title="Close">✕</button>
+    </div>
+  </div>
+  <div class="detail-body" id="detail-body"></div>
+</div>
+
+<!-- ───────── TAB 4: PATIENTS ───────── -->
+<div class="tab-content-full" data-tab-content="patients">
+  <div class="page-wrap">
+    <div class="page-title">Patient Records</div>
+    <div class="page-sub">Manage patient profiles and select the active patient for monitoring sessions</div>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <span class="session-count" id="patient-count">0 patients</span>
+        <span class="session-helper">Click "Set Active" to monitor that patient</span>
+      </div>
+      <div class="toolbar-right">
+        <button class="btn btn-danger" id="reset-system-btn" title="Wipe ALL data from Firebase">🧹 Reset System</button>
+        <button class="btn btn-primary" id="add-patient-btn"><span class="btn-icon">+</span> Add New Patient</button>
+      </div>
+    </div>
+
+    <div id="patient-grid"></div>
+  </div>
+</div>
+
+<!-- PATIENT FORM MODAL -->
+<div class="modal-backdrop" id="patient-modal-backdrop">
+  <div class="modal modal-form">
+    <div class="modal-header">
+      <div class="modal-icon-wrap" style="background:rgba(56,139,253,0.15);border-color:rgba(56,139,253,0.25)">👤</div>
+      <div class="modal-title" id="patient-modal-title">Add New Patient</div>
+    </div>
+
+    <form id="patient-form" onsubmit="return false">
+      <div class="form-group">
+        <label class="form-label">Full Name *</label>
+        <input class="form-input" id="pf-name" required placeholder="e.g., Ahmad bin Hassan">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Age</label>
+          <input class="form-input" id="pf-age" type="number" min="1" max="120" placeholder="65">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Gender</label>
+          <select class="form-select" id="pf-gender">
+            <option value="">Select...</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Diagnosis *</label>
+        <input class="form-input" id="pf-diagnosis" required placeholder="e.g., Right MCA Ischemic Stroke">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Affected Side</label>
+          <select class="form-select" id="pf-side">
+            <option value="">Select...</option>
+            <option value="Left">Left Hand</option>
+            <option value="Right">Right Hand</option>
+            <option value="Bilateral">Bilateral</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Date of Injury</label>
+          <input class="form-input" id="pf-injury-date" type="date">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Therapist</label>
+        <input class="form-input" id="pf-therapist" placeholder="e.g., Dr. Warsuzarina">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Clinical Notes</label>
+        <textarea class="form-textarea" id="pf-notes" placeholder="Additional notes, e.g., medications, comorbidities, baseline ability..."></textarea>
+      </div>
+
+      <!-- WiFi Provisioning Section -->
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;font-weight:600">
+          📡 Home WiFi Provisioning
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.4">
+          Enter the patient's home WiFi so the glove can be configured for at-home use.
+          The doctor will use these credentials when setting up the device via the WiFiManager portal.
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Home WiFi Network Name (SSID)</label>
+          <input class="form-input" id="pf-wifi-ssid" placeholder="e.g., MyHome_WiFi" autocomplete="off">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Home WiFi Password</label>
+            <div style="position:relative">
+              <input class="form-input" id="pf-wifi-pass" type="password" placeholder="••••••••" autocomplete="new-password" style="padding-right:36px">
+              <button type="button" id="pf-wifi-eye" onclick="togglePasswordVisibility()"
+                style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px">👁️</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Security Type</label>
+            <select class="form-select" id="pf-wifi-security">
+              <option value="WPA2">WPA2 / WPA3 (most common)</option>
+              <option value="WPA">WPA</option>
+              <option value="WEP">WEP (legacy)</option>
+              <option value="NONE">Open / No password</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-hint">
+          🔒 WiFi credentials are stored privately in Firebase under this patient's profile.
+          Click the patient card later to view provisioning instructions.
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn" id="patient-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="patient-save">Save Patient</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- WIFI PROVISIONING MODAL -->
+<div class="modal-backdrop" id="wifi-modal-backdrop">
+  <div class="modal modal-form" style="max-width:560px">
+    <div class="modal-header">
+      <div class="modal-icon-wrap" style="background:rgba(56,139,253,0.15);border-color:rgba(56,139,253,0.25)">📡</div>
+      <div class="modal-title">Glove Provisioning Instructions</div>
+    </div>
+
+    <div id="wifi-modal-content" style="font-size:13px;line-height:1.6;color:var(--text)">
+      <!-- Filled dynamically -->
+    </div>
+
+    <div class="modal-actions" style="margin-top:18px">
+      <button type="button" class="btn" onclick="closeWifiModal()">Close</button>
+      <button type="button" class="btn btn-primary" id="wifi-copy-btn" onclick="copyWifiDetails()">📋 Copy Credentials</button>
+    </div>
+  </div>
+</div>
+
+<!-- RESET SYSTEM MODAL -->
+<div class="modal-backdrop" id="reset-modal-backdrop">
+  <div class="modal modal-form" style="max-width:520px">
+    <div class="modal-header">
+      <div class="modal-icon-wrap" style="background:rgba(248,81,73,0.15);border-color:rgba(248,81,73,0.3)">⚠️</div>
+      <div class="modal-title">Reset Entire System</div>
+    </div>
+
+    <div style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:14px">
+      This will <strong style="color:var(--danger)">permanently delete</strong> the following from Firebase:
+    </div>
+
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:12px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--danger)">✕</span><span>All <strong id="reset-count-patients">0</strong> patient records</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--danger)">✕</span><span>All <strong id="reset-count-sessions">0</strong> session logs</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--danger)">✕</span><span>Active patient selection</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--danger)">✕</span><span>Last live sensor data</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--danger)">✕</span><span>Calibration triggers and status</span></div>
+      </div>
+    </div>
+
+    <div style="background:rgba(248,81,73,0.06);border:1px solid rgba(248,81,73,0.2);border-radius:8px;padding:10px 12px;font-size:11px;color:var(--danger);margin-bottom:16px;line-height:1.5">
+      ⚠️ <strong>This action cannot be undone.</strong> Calibration data stored locally on the ESP32 (in flash memory) is <em>not</em> affected by this reset — it only clears Firebase.
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Type <span style="color:var(--danger);font-family:'DM Mono',monospace">RESET</span> to confirm</label>
+      <input class="form-input" id="reset-confirm-input" placeholder="Type RESET here..." autocomplete="off" spellcheck="false" style="font-family:'DM Mono',monospace;font-weight:600;letter-spacing:0.1em">
+    </div>
+
+    <!-- Progress display (hidden by default) -->
+    <div id="reset-progress" style="display:none;margin-bottom:16px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Reset Progress</div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:'DM Mono',monospace;font-size:11px;line-height:1.7;max-height:160px;overflow-y:auto" id="reset-log">
+        <div style="color:var(--muted)">Starting reset...</div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" class="btn" id="reset-cancel-btn" onclick="closeResetModal()">Cancel</button>
+      <button type="button" class="btn btn-danger" id="reset-confirm-btn" disabled onclick="performSystemReset()">🧹 Reset Everything</button>
+    </div>
+  </div>
+</div>
+
+<!-- CALIBRATION MODAL -->
+<div class="modal-backdrop" id="calib-modal-backdrop">
+  <div class="calib-modal">
+    <div class="calib-title" id="calib-title">Calibrating Smart Glove</div>
+    <div class="calib-subtitle" id="calib-subtitle">For: <span id="calib-patient-name">—</span></div>
+
+    <div class="calib-progress-bar"><div class="calib-progress-fill" id="calib-progress"></div></div>
+
+    <div class="calib-buzzer-hint">
+      🔊 <span><strong>Routes automatically:</strong> If USB is connected, command sent over Serial (instant). Otherwise, sent via Firebase (poll every 2s). Listen for buzzer cues on the glove.</span>
+    </div>
+
+    <div class="calib-steps" id="calib-steps">
+      <div class="calib-step" id="calib-step-0">
+        <div class="calib-step-icon">📡</div>
+        <div class="calib-step-content">
+          <div class="calib-step-title">Sending command to glove</div>
+          <div class="calib-step-sub">Polling every 5 seconds — wait for buzzer</div>
+        </div>
+        <div class="calib-countdown" id="calib-countdown-0">—</div>
+      </div>
+      <div class="calib-step" id="calib-step-1">
+        <div class="calib-step-icon">✋</div>
+        <div class="calib-step-content">
+          <div class="calib-step-title">Open your hand fully</div>
+          <div class="calib-step-sub">Extend all 4 fingers, palm flat — recording baseline</div>
+        </div>
+        <div class="calib-countdown" id="calib-countdown-1">3</div>
+      </div>
+      <div class="calib-step" id="calib-step-2">
+        <div class="calib-step-icon">✊</div>
+        <div class="calib-step-content">
+          <div class="calib-step-title">Close into a fist</div>
+          <div class="calib-step-sub">Curl all 4 fingers tightly — recording max grip</div>
+        </div>
+        <div class="calib-countdown" id="calib-countdown-2">3</div>
+      </div>
+      <div class="calib-step" id="calib-step-3">
+        <div class="calib-step-icon">✅</div>
+        <div class="calib-step-content">
+          <div class="calib-step-title">Validating and saving</div>
+          <div class="calib-step-sub">Storing min/max values to ESP32 flash memory</div>
+        </div>
+        <div class="calib-countdown" id="calib-countdown-3">—</div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" id="calib-cancel-btn" onclick="cancelCalibration()">Cancel</button>
+      <button class="btn btn-success" id="calib-done-btn" onclick="closeCalibrationModal()" style="display:none">✓ Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRMATION MODAL -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-icon-wrap">⚠️</div>
+      <div class="modal-title" id="modal-title">Confirm Action</div>
+    </div>
+    <div class="modal-message" id="modal-message">Are you sure you want to do this?</div>
+    <div class="modal-actions">
+      <button class="btn" id="modal-cancel">Cancel</button>
+      <button class="btn btn-danger" id="modal-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ───────── EXTERNAL LIBRARIES ───────── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   FIREBASE CONFIG
+   ═══════════════════════════════════════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey: "AIzaSyC0qVZQdR6MvuP2LwwnJtc0B-bBdoBwDCI",
+  databaseURL: "https://rehab-glove-fa36f-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "rehab-glove-fa36f",
+};
+
+let db = null;
+try {
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
+} catch(e) {
+  console.warn("Firebase init failed, demo mode only:", e);
+}
+
+const PATIENT_PATH    = '/patients/patient_001';
+const LIVE_PATH       = `${PATIENT_PATH}/live_session`;
+const SESSIONS_PATH   = `${PATIENT_PATH}/sessions`;
+const CALIB_TRIGGER   = '/system/calibration_trigger';
+const CALIB_STATUS    = '/system/calibration_status';
+const DISCONNECT_MS   = 2500;
+
+// ── Patient Management Paths ────────────────────────────────────────────────
+const PATIENTS_DB_PATH  = '/clinic/patients';
+const ACTIVE_PATIENT_PATH = '/clinic/active_patient_id';
+
+let allPatients = [];
+let activePatientId = null;
+let editingPatientId = null;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONFIG & STATE
+   ═══════════════════════════════════════════════════════════════════════════ */
+const FINGER_NAMES    = ['Index','Middle','Ring','Pinky'];
+const FINGER_KEYS     = ['index','middle','ring','pinky'];
+const FINGER_ICONS    = ['☝️','🖕','💍','🤙'];
+const FINGER_COLORS   = ['#3b82f6','#8b5cf6','#ec4899','#22d3ee'];
+const FINGER_MAX_BEND = [90, 90, 88, 80];
+
+let connectionStatus = 'waiting'; // 'live' | 'waiting' | 'offline'
+let lastDataTs       = 0;
+let demoMode         = false;
+let currentSession   = { startTs:0, samples:[] };
+
+const liveData = {
+  flex: { index:0, middle:0, ring:0, pinky:0 },
+  mpu:  { acc_x:0, acc_y:9.81, acc_z:0, pitch:0, roll:0, yaw:0 }
+};
+
+const bendAngles = [0, 0, 0, 0];  // demo mode slider values
+
+function gripStatus(pct) {
+  if (pct < 40) return { label:'POOR',      cls:'poor',      color:'#f85149', badge:'badge-poor' };
+  if (pct < 70) return { label:'FAIR',      cls:'fair',      color:'#d29922', badge:'badge-fair' };
+  if (pct < 90) return { label:'GOOD',      cls:'good',      color:'#3fb950', badge:'badge-good' };
+  return        { label:'EXCELLENT', cls:'excellent', color:'#58a6ff', badge:'badge-excellent' };
+}
+
+function angleToGrip(angle, idx) {
+  return Math.round((angle / FINGER_MAX_BEND[idx]) * 100);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WEB SERIAL API — USB Connection to ESP32 (Clinic Mode)
+   ═══════════════════════════════════════════════════════════════════════════ */
+const SERIAL_BAUD = 115200;
+
+function isWebSerialSupported() {
+  return 'serial' in navigator;
+}
+
+async function toggleSerialConnection() {
+  if (serialState.connected) {
+    await disconnectSerial();
+  } else {
+    await connectSerial();
+  }
+}
+
+async function connectSerial() {
+  if (!isWebSerialSupported()) {
+    showModal(
+      'Web Serial Not Supported',
+      'Your browser does not support the Web Serial API. Please use Chrome, Edge, or Opera (desktop) to connect via USB.',
+      () => {}
+    );
+    return;
+  }
+
+  try {
+    pushFeed(`<span class="feed-key">USB:</span> Requesting serial port...`);
+    const port = await navigator.serial.requestPort();
+    await port.open({
+      baudRate: SERIAL_BAUD,
+      dataBits: 8,
+      stopBits: 1,
+      parity: 'none',
+      flowControl: 'none',
+    });
+
+    serialState.port = port;
+    serialState.connected = true;
+
+    // Set up writer (text encoder → port writable)
+    const textEncoder = new TextEncoderStream();
+    textEncoder.readable.pipeTo(port.writable);
+    serialState.writer = textEncoder.writable.getWriter();
+
+    // Update UI
+    const btn = document.getElementById('usb-connect-btn');
+    btn.classList.add('connected');
+    document.getElementById('usb-btn-label').textContent = 'USB Glove Connected';
+    btn.title = 'Click to disconnect';
+
+    pushFeed(`<span class="feed-key">USB:</span> ✅ Connected at ${SERIAL_BAUD} baud`);
+
+    // Set up reader (port readable → text decoder → line buffer)
+    const textDecoder = new TextDecoderStream();
+    port.readable.pipeTo(textDecoder.writable).catch(e => {
+      console.warn('Read pipe closed:', e);
+    });
+    const reader = textDecoder.readable.getReader();
+    serialState.reader = reader;
+
+    // Send STATUS request to verify connection
+    setTimeout(() => sendSerialCommand('<STATUS>'), 200);
+
+    // Start the read loop (non-blocking)
+    readSerialLoop(reader);
+
+    computeConnectionStatus();
+  } catch (err) {
+    pushFeed(`<span class="feed-key">USB:</span> ❌ Failed: ${err.message}`);
+    console.error('Serial connection error:', err);
+    if (err.name !== 'NotFoundError') {
+      showModal('USB Connection Failed', err.message || 'Could not open the serial port.', () => {});
+    }
+  }
+}
+
+async function disconnectSerial() {
+  try {
+    if (serialState.reader) {
+      try { await serialState.reader.cancel(); } catch(e) {}
+      serialState.reader = null;
+    }
+    if (serialState.writer) {
+      try { await serialState.writer.close(); } catch(e) {}
+      serialState.writer = null;
+    }
+    if (serialState.port) {
+      try { await serialState.port.close(); } catch(e) {}
+      serialState.port = null;
+    }
+  } catch (e) {
+    console.warn('Error during disconnect:', e);
+  }
+
+  serialState.connected = false;
+  serialState.lastDataTs = 0;
+
+  const btn = document.getElementById('usb-connect-btn');
+  btn.classList.remove('connected');
+  document.getElementById('usb-btn-label').textContent = 'Connect USB Glove';
+  btn.title = 'Connect to ESP32 via USB cable';
+
+  pushFeed(`<span class="feed-key">USB:</span> Disconnected`);
+  computeConnectionStatus();
+}
+
+async function readSerialLoop(reader) {
+  let buffer = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let newlineIdx;
+      while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.substring(0, newlineIdx).trim();
+        buffer = buffer.substring(newlineIdx + 1);
+        if (line) processSerialLine(line);
+      }
+    }
+  } catch (e) {
+    console.warn('Serial read loop ended:', e);
+  } finally {
+    if (serialState.connected) {
+      pushFeed(`<span class="feed-key">USB:</span> Connection lost`);
+      disconnectSerial();
+    }
+  }
+}
+
+function processSerialLine(line) {
+  // JSON data line: {"flex":{...},"mpu":{...}}
+  if (line.startsWith('{')) {
+    try {
+      const data = JSON.parse(line);
+      if (data.flex) {
+        liveData.flex.index  = Number(data.flex.index  ?? 0);
+        liveData.flex.middle = Number(data.flex.middle ?? 0);
+        liveData.flex.ring   = Number(data.flex.ring   ?? 0);
+        liveData.flex.pinky  = Number(data.flex.pinky  ?? 0);
+      }
+      if (data.mpu) {
+        liveData.mpu.acc_x = Number(data.mpu.acc_x ?? 0);
+        liveData.mpu.acc_y = Number(data.mpu.acc_y ?? 9.81);
+        liveData.mpu.acc_z = Number(data.mpu.acc_z ?? 0);
+        const ax = liveData.mpu.acc_x, ay = liveData.mpu.acc_y, az = liveData.mpu.acc_z;
+        liveData.mpu.pitch = Math.atan2(ax, Math.sqrt(ay*ay + az*az)) * 180 / Math.PI;
+        liveData.mpu.roll  = Math.atan2(az, ay) * 180 / Math.PI;
+      }
+
+      serialState.lastDataTs = Date.now();
+
+      // Track session samples
+      if (currentSession.startTs === 0) {
+        currentSession.startTs = Date.now();
+        currentSession.samples = [];
+      }
+      currentSession.samples.push({ ...liveData.flex });
+
+      if (currentSession.samples.length % 20 === 0) {
+        const f = liveData.flex;
+        pushFeed(`<span class="feed-key">USB:</span> I:${f.index}% M:${f.middle}% R:${f.ring}% P:${f.pinky}%`);
+      }
+    } catch (e) {
+      // Malformed JSON — log but don't crash
+      console.warn('Failed to parse serial JSON:', line);
+    }
+    return;
+  }
+
+  // Log lines: [LOG] something
+  if (line.startsWith('[LOG]')) {
+    const msg = line.substring(5).trim();
+    pushFeed(`<span class="feed-key">FW:</span> ${escapeForFeed(msg)}`);
+    return;
+  }
+
+  // Calibration status updates from firmware
+  if (line.startsWith('[CALIB_STATUS]')) {
+    const msg = line.substring(14).trim();
+    pushFeed(`<span class="feed-key">CALIB:</span> ${escapeForFeed(msg)}`);
+    // Check for success/failure to update modal
+    if (calibrationActive) {
+      if (msg.toLowerCase().startsWith('success')) {
+        // Firmware confirmed — dashboard sequence will conclude on its own
+      } else if (msg.toLowerCase().startsWith('failed')) {
+        failCalibration(msg);
+      }
+    }
+    return;
+  }
+
+  if (line.startsWith('[CALIB]')) {
+    pushFeed(`<span class="feed-key">FW:</span> ${escapeForFeed(line)}`);
+    return;
+  }
+
+  if (line.startsWith('[STATUS]')) {
+    pushFeed(`<span class="feed-key">STATUS:</span> ${escapeForFeed(line.substring(8).trim())}`);
+    return;
+  }
+}
+
+function escapeForFeed(str) {
+  return String(str).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+}
+
+async function sendSerialCommand(command) {
+  if (!serialState.connected || !serialState.writer) {
+    pushFeed(`<span class="feed-key">USB:</span> ❌ Cannot send — USB not connected`);
+    return false;
+  }
+  try {
+    await serialState.writer.write(command + '\n');
+    pushFeed(`<span class="feed-key">USB:</span> ▶ Sent ${escapeForFeed(command)}`);
+    return true;
+  } catch (e) {
+    pushFeed(`<span class="feed-key">USB:</span> ❌ Write failed: ${e.message}`);
+    return false;
+  }
+}
+
+// Hide USB button if not supported
+if (!isWebSerialSupported()) {
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('usb-connect-btn');
+    btn.classList.add('unsupported');
+    btn.title = 'Web Serial requires Chrome, Edge, or Opera (desktop)';
+    btn.onclick = () => {
+      showModal('Web Serial Not Supported', 'Your browser does not support Web Serial API. Use Chrome, Edge, or Opera on desktop.', () => {});
+    };
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WIFI USB PROVISIONING — Write credentials to glove via Serial
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function writeWifiToGlove(patientId) {
+  const patient = allPatients.find(p => p.id === patientId);
+  if (!patient) return;
+
+  const statusEl = document.getElementById('wifi-usb-write-status');
+  const btn = document.getElementById('wifi-usb-write-btn');
+
+  if (!serialState.connected) {
+    statusEl.className = 'usb-write-status error';
+    statusEl.textContent = '❌ USB not connected. Click "🔌 Connect USB Glove" in the header first.';
+    return;
+  }
+
+  if (!patient.wifi_ssid || !patient.wifi_password) {
+    statusEl.className = 'usb-write-status error';
+    statusEl.textContent = '❌ WiFi credentials missing on this patient profile.';
+    return;
+  }
+
+  // Sanitize — colons in SSID/password would break our framing
+  if (patient.wifi_ssid.includes(':') || patient.wifi_password.includes(':')) {
+    statusEl.className = 'usb-write-status error';
+    statusEl.textContent = '⚠ Cannot include ":" in SSID or password (used as command separator).';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Writing to glove...';
+  statusEl.className = 'usb-write-status';
+  statusEl.textContent = 'Sending <WIFI:...> command via Serial...';
+
+  const command = `<WIFI:${patient.wifi_ssid}:${patient.wifi_password}>`;
+  const ok = await sendSerialCommand(command);
+
+  if (ok) {
+    statusEl.className = 'usb-write-status success';
+    statusEl.textContent = `✅ WiFi credentials sent. Glove is attempting to connect to "${patient.wifi_ssid}". Watch the serial log for confirmation.`;
+    btn.textContent = '✅ Sent!';
+    setTimeout(() => {
+      btn.textContent = '🔌 Write WiFi to Glove via USB';
+      btn.disabled = false;
+    }, 3000);
+  } else {
+    statusEl.className = 'usb-write-status error';
+    statusEl.textContent = '❌ Failed to send. Check USB connection.';
+    btn.textContent = '🔌 Write WiFi to Glove via USB';
+    btn.disabled = false;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB SWITCHING
+   ═══════════════════════════════════════════════════════════════════════════ */
+function switchTab(tabName) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.dataset.tabContent === tabName));
+  document.querySelectorAll('.tab-content-full').forEach(c => c.classList.toggle('active', c.dataset.tabContent === tabName));
+  document.getElementById('live-main').style.display = (tabName === 'live') ? 'grid' : 'none';
+  if (tabName === 'history')  renderHistory();
+  if (tabName === 'sessions') renderSessions();
+  if (tabName === 'patients') renderPatients();
+}
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONNECTION STATUS
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONNECTION STATUS — Tri-state: USB / Firebase / Offline
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// Per-source connection tracking
+const serialState = {
+  port: null,
+  reader: null,
+  writer: null,
+  connected: false,
+  lastDataTs: 0,
+};
+let firebaseLastDataTs = 0;
+
+function setConnectionStatus(_legacyStatus) {
+  // Legacy callers pass status; recompute from actual sources
+  computeConnectionStatus();
+}
+
+function computeConnectionStatus() {
+  const now = Date.now();
+  const usbActive  = serialState.connected && (now - serialState.lastDataTs < DISCONNECT_MS);
+  const fbActive   = (now - firebaseLastDataTs < DISCONNECT_MS) && firebaseLastDataTs > 0;
+
+  const dot = document.getElementById('status-dot');
+  const lbl = document.getElementById('status-label');
+  dot.classList.remove('waiting','offline','usb','firebase');
+
+  let newStatus = 'offline';
+
+  if (usbActive) {
+    dot.classList.add('usb');
+    lbl.textContent = 'USB Connected (Clinic)';
+    document.getElementById('waiting-overlay').classList.remove('show');
+    newStatus = 'live';
+  } else if (fbActive) {
+    dot.classList.add('firebase');
+    lbl.textContent = 'Firebase Connected (Remote)';
+    document.getElementById('waiting-overlay').classList.remove('show');
+    newStatus = 'live';
+  } else if (serialState.connected) {
+    // USB connected but no data yet
+    dot.classList.add('usb');
+    lbl.textContent = 'USB Connected — Awaiting Data';
+    if (!isUsingSliders()) document.getElementById('waiting-overlay').classList.add('show');
+    newStatus = 'waiting';
+  } else {
+    dot.classList.add('offline');
+    lbl.textContent = 'Offline';
+    document.getElementById('waiting-text').textContent = 'No Glove Connected';
+    document.getElementById('waiting-sub').textContent  = 'Click 🔌 Connect USB Glove or use Manual Demo Controls →';
+    if (!isUsingSliders()) document.getElementById('waiting-overlay').classList.add('show');
+    newStatus = 'offline';
+  }
+
+  // Handle transitions
+  const wasLive = connectionStatus === 'live';
+  connectionStatus = newStatus;
+  if (wasLive && newStatus !== 'live' && currentSession.startTs !== 0 && currentSession.samples.length > 5) {
+    archiveSession();
+  }
+}
+
+// Check status periodically
+setInterval(computeConnectionStatus, 500);
+
+// Check if user is actively moving sliders
+function isUsingSliders() {
+  return bendAngles.some(a => a > 0);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DEMO MODE TOGGLE (press D 3x)
+   ═══════════════════════════════════════════════════════════════════════════ */
+let dPresses = [];
+document.addEventListener('keydown', e => {
+  if (e.key === 'd' || e.key === 'D') {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    const now = Date.now();
+    dPresses.push(now);
+    dPresses = dPresses.filter(t => now - t < 1500);
+    if (dPresses.length >= 3) { toggleDemoMode(); dPresses = []; }
+  } else { dPresses = []; }
+});
+function toggleDemoMode() {
+  demoMode = !demoMode;
+  document.getElementById('demo-badge').classList.toggle('active', demoMode);
+  if (demoMode) {
+    document.getElementById('slider-panel').style.display = 'block';
+    pushFeed(`<span class="feed-key">MODE:</span> Demo mode enabled — drag sliders to bend fingers`);
+  } else {
+    bendAngles.fill(0);
+    document.querySelectorAll('.slider-track').forEach(s => s.value = 0);
+    document.getElementById('slider-panel').style.display = connectionStatus === 'live' ? 'none' : 'none';
+    pushFeed(`<span class="feed-key">MODE:</span> Demo mode disabled`);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FIREBASE LIVE SUBSCRIPTION
+   ═══════════════════════════════════════════════════════════════════════════ */
+function subscribeLiveSession() {
+  if (!db) return;
+  const liveRef = db.ref(LIVE_PATH);
+
+  liveRef.on('value', snap => {
+    const data = snap.val();
+    if (!data) return;
+
+    const now = Date.now();
+    // If USB is actively streaming, USB takes priority — ignore Firebase echo
+    const usbActive = serialState.connected && (now - serialState.lastDataTs < 1000);
+
+    if (!usbActive) {
+      if (data.flex) {
+        liveData.flex.index  = Number(data.flex.index  ?? 0);
+        liveData.flex.middle = Number(data.flex.middle ?? 0);
+        liveData.flex.ring   = Number(data.flex.ring   ?? 0);
+        liveData.flex.pinky  = Number(data.flex.pinky  ?? 0);
+      }
+      if (data.mpu) {
+        liveData.mpu.acc_x = Number(data.mpu.acc_x ?? 0);
+        liveData.mpu.acc_y = Number(data.mpu.acc_y ?? 9.81);
+        liveData.mpu.acc_z = Number(data.mpu.acc_z ?? 0);
+        const ax = liveData.mpu.acc_x, ay = liveData.mpu.acc_y, az = liveData.mpu.acc_z;
+        liveData.mpu.pitch = Math.atan2(ax, Math.sqrt(ay*ay + az*az)) * 180 / Math.PI;
+        liveData.mpu.roll  = Math.atan2(az, ay) * 180 / Math.PI;
+      }
+    }
+
+    firebaseLastDataTs = now;
+
+    if (currentSession.startTs === 0) {
+      currentSession.startTs = now;
+      currentSession.samples = [];
+    }
+    currentSession.samples.push({ ...liveData.flex });
+
+    if (currentSession.samples.length % 14 === 0) {
+      const f = liveData.flex;
+      pushFeed(`<span class="feed-key">FB:</span> I:${f.index}% M:${f.middle}% R:${f.ring}% P:${f.pinky}%`);
+    }
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SESSION ARCHIVING
+   ═══════════════════════════════════════════════════════════════════════════ */
+function archiveSession() {
+  if (currentSession.samples.length < 3) return;
+
+  const startTime = currentSession.startTs;
+  const endTime   = Date.now();
+  const duration  = Math.max(1, Math.round((endTime - startTime) / 1000));
+
+  const sum = currentSession.samples.reduce((a,s) => ({
+    index:  a.index  + s.index,
+    middle: a.middle + s.middle,
+    ring:   a.ring   + s.ring,
+    pinky:  a.pinky  + s.pinky,
+  }), {index:0, middle:0, ring:0, pinky:0});
+
+  const n = currentSession.samples.length;
+  const per_finger = {
+    index:  Math.round(sum.index  / n),
+    middle: Math.round(sum.middle / n),
+    ring:   Math.round(sum.ring   / n),
+    pinky:  Math.round(sum.pinky  / n),
+  };
+  const avg_grip = Math.round((per_finger.index + per_finger.middle + per_finger.ring + per_finger.pinky) / 4);
+
+  const isManual = connectionStatus !== 'live';
+
+  const sessionData = {
+    start_time: startTime,
+    end_time:   endTime,
+    duration_seconds: duration,
+    exercise_type: isManual ? 'Manual Demo' : 'Live Session',
+    avg_grip,
+    per_finger,
+    patient_id: activePatientId || null,
+    patient_name: activePatientId ? (allPatients.find(p => p.id === activePatientId)?.name || 'Unknown') : 'Unassigned',
+  };
+
+  if (db) {
+    const ref = db.ref(SESSIONS_PATH).push();
+    ref.set(sessionData).then(() => {
+      pushFeed(`<span class="feed-key">SESSION:</span> Archived to Firebase — avg ${avg_grip}% over ${duration}s`);
+    }).catch(e => {
+      pushFeed(`<span class="feed-key">SESSION:</span> Saved locally — avg ${avg_grip}% (Firebase offline)`);
+      // Fall back to local storage
+      saveSessionLocally(sessionData);
+    });
+  } else {
+    pushFeed(`<span class="feed-key">SESSION:</span> Saved locally — avg ${avg_grip}% (no Firebase)`);
+    saveSessionLocally(sessionData);
+  }
+
+  currentSession = { startTs: 0, samples: [] };
+}
+
+// Fallback local session storage (when Firebase unavailable)
+function saveSessionLocally(sessionData) {
+  const id = 'local_' + Date.now();
+  allSessions.unshift({ id, ...sessionData });
+  // Re-render visible tabs
+  const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+  if (activeTab === 'sessions') renderSessions();
+  if (activeTab === 'history')  renderHistory();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SESSIONS DATA SUBSCRIPTION
+   ═══════════════════════════════════════════════════════════════════════════ */
+let allSessions = [];
+function subscribeSessions() {
+  if (!db) return;
+  const ref = db.ref(SESSIONS_PATH);
+  ref.on('value', snap => {
+    const data = snap.val() || {};
+    allSessions = Object.entries(data).map(([id, s]) => ({ id, ...s }));
+    allSessions.sort((a,b) => b.start_time - a.start_time);
+
+    // Re-render visible tabs
+    const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (activeTab === 'sessions') renderSessions();
+    if (activeTab === 'history')  renderHistory();
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DELETE FUNCTIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function deleteAllSessions() {
+  if (!db) return;
+  await db.ref(SESSIONS_PATH).remove();
+  pushFeed(`<span class="feed-key">SESSIONS:</span> All sessions cleared`);
+}
+
+async function deleteSession(id) {
+  if (!db) return;
+  await db.ref(`${SESSIONS_PATH}/${id}`).remove();
+  pushFeed(`<span class="feed-key">SESSION:</span> Deleted ${id}`);
+}
+
+async function clearLiveSession() {
+  if (!db) return;
+  await db.ref(LIVE_PATH).remove();
+  currentSession = { startTs: 0, samples: [] };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONFIRMATION MODAL
+   ═══════════════════════════════════════════════════════════════════════════ */
+let modalOnConfirm = null;
+function showModal(title, message, onConfirm) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-message').textContent = message;
+  modalOnConfirm = onConfirm;
+  document.getElementById('modal-backdrop').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modal-backdrop').classList.remove('open');
+  modalOnConfirm = null;
+}
+document.getElementById('modal-cancel').addEventListener('click', closeModal);
+document.getElementById('modal-confirm').addEventListener('click', () => {
+  if (modalOnConfirm) modalOnConfirm();
+  closeModal();
+});
+document.getElementById('modal-backdrop').addEventListener('click', e => {
+  if (e.target.id === 'modal-backdrop') closeModal();
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CLINICAL RECOMMENDATIONS — 8 Rules
+   ═══════════════════════════════════════════════════════════════════════════ */
+function evaluateRules(avg, perFinger, mpu, sessions) {
+  const rules = [];
+  const fingerVals = [perFinger.index, perFinger.middle, perFinger.ring, perFinger.pinky];
+  const maxF = Math.max(...fingerVals);
+  const minF = Math.min(...fingerVals);
+  const accMag = Math.sqrt(mpu.acc_x**2 + mpu.acc_y**2 + mpu.acc_z**2) / 9.81;
+
+  if (avg < 35) rules.push({ id:'R-001', priority:'high', text:'Severe deficit detected — passive flexion therapy needed.' });
+  if (maxF - minF > 25 && avg >= 30) {
+    const weakIdx = fingerVals.indexOf(minF);
+    rules.push({ id:'R-002', priority:'medium', text:`Target weakest finger: ${FINGER_NAMES[weakIdx]} (${minF}%). Imbalance > 25%.` });
+  }
+  if (Math.abs(mpu.pitch) > 25 && avg < 60) rules.push({ id:'R-003', priority:'medium', text:`Stabilize wrist orientation (pitch ${mpu.pitch.toFixed(0)}°). Use support brace.` });
+  if (avg >= 35 && avg < 70) rules.push({ id:'R-004', priority:'low', text:'Task-specific exercises recommended (grasping objects, finger taps).' });
+  if (avg >= 70 && avg < 90) rules.push({ id:'R-005', priority:'low', text:'Endurance training phase — increase session duration.' });
+  if (avg >= 90) rules.push({ id:'R-006', priority:'low', text:'Maintenance phase achieved. Continue regular practice.' });
+  if (Math.abs(accMag - 1.0) > 0.18 && avg < 70) rules.push({ id:'R-007', priority:'medium', text:'Tremor detected — support forearm during grip exercises.' });
+
+  // Plateau check (last 5 sessions vary < 5%)
+  if (sessions.length >= 5) {
+    const recent = sessions.slice(0, 5).map(s => s.avg_grip);
+    if (Math.max(...recent) - Math.min(...recent) < 5) {
+      rules.push({ id:'R-008', priority:'medium', text:'Plateau warning — last 5 sessions show < 5% variance. Advance difficulty.' });
+    }
+  }
+
+  return rules;
+}
+
+function renderRecommendations(rules) {
+  const list = document.getElementById('reco-list');
+  if (!rules || rules.length === 0) {
+    list.innerHTML = '<div class="reco-empty">No active recommendations — patient state nominal.</div>';
+    return;
+  }
+  list.innerHTML = rules.map(r => `
+    <div class="reco-card priority-${r.priority}">
+      <div class="reco-id">${r.id}</div>
+      <div class="reco-text">${r.text}</div>
+    </div>
+  `).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BUILD UI — GRIP CARDS, SLIDERS, FEED
+   ═══════════════════════════════════════════════════════════════════════════ */
+function buildGripCards() {
+  const container = document.getElementById('grip-cards');
+  container.innerHTML = '';
+  FINGER_NAMES.forEach((name, i) => {
+    const id = name.toLowerCase();
+    const card = document.createElement('div');
+    card.className = 'grip-card';
+    card.innerHTML = `
+      <div class="grip-icon" style="background:${FINGER_COLORS[i]}22">${FINGER_ICONS[i]}</div>
+      <div class="grip-info">
+        <div class="grip-label">${name} Finger</div>
+        <div class="grip-pct-row">
+          <span class="grip-pct" id="gp-${id}" style="color:${FINGER_COLORS[i]}">0%</span>
+          <span class="grip-unit">grip strength</span>
+        </div>
+        <div class="grip-bar-bg"><div class="grip-bar" id="gb-${id}" style="width:0%;background:${FINGER_COLORS[i]}"></div></div>
+      </div>
+      <div class="grip-badge badge-poor" id="gbadge-${id}">POOR</div>`;
+    container.appendChild(card);
+  });
+}
+
+function buildSliders() {
+  const container = document.getElementById('slider-section');
+  container.innerHTML = '';
+  FINGER_NAMES.forEach((name, i) => {
+    const id = name.toLowerCase();
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+    row.innerHTML = `
+      <div class="slider-header">
+        <div class="slider-finger-name">
+          <div class="slider-dot" style="background:${FINGER_COLORS[i]}"></div>
+          ${FINGER_ICONS[i]} ${name} Finger
+        </div>
+        <span class="slider-angle" id="sa-${id}">0° — 0%</span>
+      </div>
+      <input type="range" min="0" max="${FINGER_MAX_BEND[i]}" value="0" step="1"
+             class="slider-track" id="sl-${id}" style="accent-color:${FINGER_COLORS[i]}">
+      <div class="slider-hint">Drag right → bend finger / increase grip strength</div>`;
+    container.appendChild(row);
+
+    document.getElementById('sl-'+id).addEventListener('input', function() {
+      bendAngles[i] = parseInt(this.value);
+      document.getElementById('sa-'+id).textContent =
+        bendAngles[i] + '° — ' + angleToGrip(bendAngles[i], i) + '%';
+
+      // Sliders drive data only when no live source is active
+      const now = Date.now();
+      const usbLive = serialState.connected && (now - serialState.lastDataTs < 1000);
+      const fbLive = (now - firebaseLastDataTs < 1000);
+
+      if (!usbLive && !fbLive) {
+        liveData.flex[id] = angleToGrip(bendAngles[i], i);
+        document.getElementById('waiting-overlay').classList.remove('show');
+
+        if (currentSession.startTs === 0) {
+          currentSession.startTs = Date.now();
+          currentSession.samples = [];
+          pushFeed(`<span class="feed-key">SESSION:</span> Manual demo session started`);
+        }
+        currentSession.samples.push({ ...liveData.flex });
+      }
+    });
+  });
+
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    bendAngles.fill(0);
+    FINGER_NAMES.forEach((name, i) => {
+      const id = name.toLowerCase();
+      document.getElementById('sl-'+id).value = 0;
+      document.getElementById('sa-'+id).textContent = '0° — 0%';
+      if (connectionStatus !== 'live') liveData.flex[id] = 0;
+    });
+    pushFeed(`<span class="feed-key">RESET:</span> All fingers returned to open position`);
+  });
+
+  // ── Save Session button — manually archive the current session ──
+  document.getElementById('save-session-btn').addEventListener('click', () => {
+    if (connectionStatus === 'live') {
+      pushFeed(`<span class="feed-key">SAVE:</span> Cannot manually save during live ESP32 session`);
+      return;
+    }
+    if (currentSession.samples.length < 3) {
+      pushFeed(`<span class="feed-key">SAVE:</span> Move sliders first to record data`);
+      return;
+    }
+    archiveSession();
+    // Reset sliders after saving
+    bendAngles.fill(0);
+    FINGER_NAMES.forEach((name, i) => {
+      const id = name.toLowerCase();
+      document.getElementById('sl-'+id).value = 0;
+      document.getElementById('sa-'+id).textContent = '0° — 0%';
+      liveData.flex[id] = 0;
+    });
+  });
+}
+
+/* ── SERIAL FEED ──────────────────────────────────────────────────────── */
+let feedLines = [];
+function pushFeed(line) {
+  const now = new Date();
+  const ts  = `${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}.${Math.floor(now.getMilliseconds()/10).toString().padStart(2,'0')}`;
+  feedLines.push(`<div class="feed-line"><span class="feed-ts">[${ts}]</span> ${line}</div>`);
+  if (feedLines.length > 7) feedLines.shift();
+  document.getElementById('feed').innerHTML = feedLines.join('');
+}
+document.getElementById('clear-feed-btn').addEventListener('click', () => {
+  feedLines = [];
+  document.getElementById('feed').innerHTML = '<div class="feed-empty">Cleared. Waiting for serial output...</div>';
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI UPDATE — GRIP CARDS & SESSION SCORE
+   ═══════════════════════════════════════════════════════════════════════════ */
+const displayValues = { index:0, middle:0, ring:0, pinky:0 };
+function updateGripUI() {
+  // Smooth lerp toward live values
+  FINGER_KEYS.forEach(k => {
+    displayValues[k] = displayValues[k] + (liveData.flex[k] - displayValues[k]) * 0.18;
+  });
+
+  let total = 0;
+  FINGER_NAMES.forEach((name, i) => {
+    const id  = name.toLowerCase();
+    const pct = Math.round(displayValues[id]);
+    total += pct;
+    const st = gripStatus(pct);
+    document.getElementById('gp-'+id).textContent = pct+'%';
+    document.getElementById('gb-'+id).style.width = pct+'%';
+    const badge = document.getElementById('gbadge-'+id);
+    badge.textContent = st.label;
+    badge.className   = 'grip-badge '+st.badge;
+    const lbl = document.getElementById('lbl-'+id);
+    lbl.className = 'flabel '+st.cls;
+    document.getElementById('lv-'+id).textContent = pct+'%';
+    document.getElementById('ls-'+id).textContent = st.label;
+  });
+
+  const avg = Math.round(total / 4);
+  const st  = gripStatus(avg);
+  document.getElementById('ov-score').textContent = avg+'%';
+  document.getElementById('ov-score').style.color = st.color;
+
+  const offset = 188.5 * (1 - avg/100);
+  document.getElementById('ring-circle').style.strokeDashoffset = offset;
+  document.getElementById('ring-circle').style.stroke = st.color;
+  document.getElementById('ring-val').textContent = avg;
+  document.getElementById('ring-val').style.color = st.color;
+
+  // Gesture and description
+  let title, desc, gesture;
+  const hasActivity = avg > 1 || isUsingSliders() || connectionStatus === 'live';
+  if (!hasActivity) {
+    title = 'Ready'; desc = 'Power on the smart glove or use sliders to begin.'; gesture = 'Ready';
+  } else if (avg < 5) {
+    title = 'Open Hand'; desc = 'Hand fully open. Begin gripping motion.'; gesture = 'Open Hand';
+  } else if (avg < 40) {
+    title = 'Needs Support'; desc = 'Grip strength below threshold. Continue passive flexion exercises.'; gesture = 'Light Grip';
+  } else if (avg < 70) {
+    title = 'Active Rehab'; desc = 'Partial recovery detected. Targeted finger flexion recommended.'; gesture = 'Medium Grip';
+  } else if (avg < 90) {
+    title = 'Good Progress'; desc = 'Functional grip achieved. Patient nearing discharge criteria.'; gesture = 'Strong Grip';
+  } else {
+    title = 'Full Recovery'; desc = 'Normative grip strength restored.'; gesture = 'Closed Fist';
+  }
+  document.getElementById('score-title').textContent = title;
+  document.getElementById('score-desc').textContent  = desc;
+  document.getElementById('gesture-name-top').textContent = gesture;
+  document.getElementById('gesture-cat').textContent = hasActivity ? gripStatus(avg).label : 'Awaiting flex data';
+
+  // MPU display
+  document.getElementById('imu-pitch').textContent = liveData.mpu.pitch.toFixed(1)+'°';
+  document.getElementById('imu-roll').textContent  = liveData.mpu.roll.toFixed(1)+'°';
+  document.getElementById('imu-yaw').textContent   = (liveData.mpu.yaw || 0).toFixed(1)+'°';
+  document.getElementById('imu-ax').textContent    = liveData.mpu.acc_x.toFixed(2);
+  document.getElementById('imu-ay').textContent    = liveData.mpu.acc_y.toFixed(2);
+  document.getElementById('imu-az').textContent    = liveData.mpu.acc_z.toFixed(2);
+
+  // Recommendations — always run when there's activity
+  if (hasActivity) {
+    const rules = evaluateRules(avg, displayValues, liveData.mpu, allSessions);
+    renderRecommendations(rules);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THREE.JS 3D HAND (preserved from original test.html)
+   ═══════════════════════════════════════════════════════════════════════════ */
+const canvas  = document.getElementById('three-canvas');
+const section = document.getElementById('canvas-section');
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+
+function resizeRenderer() {
+  const w = section.clientWidth, h = section.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w/h;
+  camera.updateProjectionMatrix();
+}
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+camera.position.set(0, 2.5, 11); camera.lookAt(0, 1.5, 0);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+scene.fog = new THREE.FogExp2(0x0d1117, 0.04);
+
+scene.add(new THREE.AmbientLight(0xddeeff, 0.5));
+const keyLight = new THREE.DirectionalLight(0xfff5e0, 2.2);
+keyLight.position.set(4, 8, 6); keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 0.5; keyLight.shadow.camera.far = 30;
+keyLight.shadow.camera.left = keyLight.shadow.camera.bottom = -6;
+keyLight.shadow.camera.right = keyLight.shadow.camera.top = 6;
+keyLight.shadow.bias = -0.001; scene.add(keyLight);
+const fillL = new THREE.DirectionalLight(0x99ccff, 0.7); fillL.position.set(-5, 3, 4); scene.add(fillL);
+const rimL  = new THREE.DirectionalLight(0x4488ff, 0.9); rimL.position.set(0, 5, -6); scene.add(rimL);
+const underL= new THREE.DirectionalLight(0xffaa44, 0.3); underL.position.set(0, -4, 3); scene.add(underL);
+
+const skinColor     = new THREE.Color(0xc68642);
+const skinColorDark = new THREE.Color(0xa0672e);
+const skinMat        = new THREE.MeshStandardMaterial({ color:skinColor, roughness:0.75, metalness:0.0 });
+const skinKnuckleMat = new THREE.MeshStandardMaterial({ color:skinColorDark, roughness:0.85, metalness:0.0 });
+const nailMat        = new THREE.MeshStandardMaterial({ color:0xffddcc, roughness:0.3, metalness:0.05 });
+
+const handGroup = new THREE.Group();
+scene.add(handGroup);
+
+function makeSeg(rx, ry, rz, mat) {
+  const g = new THREE.SphereGeometry(1,14,10); g.scale(rx,ry,rz);
+  const m = new THREE.Mesh(g, mat); m.castShadow=true; m.receiveShadow=true; return m;
+}
+function makeKnuckle(r, mat) {
+  const g = new THREE.SphereGeometry(r,10,8);
+  const m = new THREE.Mesh(g, mat); m.castShadow=true; return m;
+}
+
+const palmMesh = new THREE.Mesh(new THREE.BoxGeometry(2.2,1.6,0.65), skinMat);
+palmMesh.position.set(0,0.8,0); palmMesh.castShadow=true; palmMesh.receiveShadow=true; handGroup.add(palmMesh);
+const palmBottom = makeSeg(1.1,0.25,0.33, skinMat); palmBottom.position.set(0,-0.01,0); handGroup.add(palmBottom);
+const wristMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.78,0.9,0.9,16), skinMat);
+wristMesh.position.set(0,-0.15,0); wristMesh.castShadow=true; wristMesh.receiveShadow=true; handGroup.add(wristMesh);
+
+const FINGER_DEFS = [
+  { x:-0.82, y:1.58, name:'index',  sc:1.0,  segs:[0.75,0.62,0.46] },
+  { x:-0.26, y:1.66, name:'middle', sc:1.05, segs:[0.80,0.66,0.50] },
+  { x: 0.28, y:1.62, name:'ring',   sc:0.98, segs:[0.76,0.63,0.47] },
+  { x: 0.82, y:1.52, name:'pinky',  sc:0.80, segs:[0.60,0.50,0.38] },
+];
+
+const fingerGroups = [];
+FINGER_DEFS.forEach((fd, fi) => {
+  const masterGrp = new THREE.Group();
+  masterGrp.position.set(fd.x, fd.y, 0); handGroup.add(masterGrp);
+  const pivots = []; let cumY = 0;
+  fd.segs.forEach((segLen, si) => {
+    const pivot = new THREE.Group(); pivot.position.y = cumY;
+    if (si===0) masterGrp.add(pivot); else pivots[si-1].pivot.add(pivot);
+    const sc = fd.sc;
+    const w = (0.30 - si*0.03) * sc;
+    const d = (0.28 - si*0.02) * sc;
+    const segMesh = new THREE.Mesh(new THREE.BoxGeometry(w, segLen*sc, d), si===1 ? skinKnuckleMat : skinMat);
+    segMesh.position.y = segLen*sc/2; segMesh.castShadow=true; segMesh.receiveShadow=true; pivot.add(segMesh);
+    const kn = makeKnuckle(w*0.55, skinKnuckleMat); kn.position.y = segLen*sc; pivot.add(kn);
+    if (si===2) {
+      const nailMesh = new THREE.Mesh(new THREE.BoxGeometry(w*0.7, segLen*sc*0.4, 0.04), nailMat);
+      nailMesh.position.set(0, segLen*sc*0.55, d/2+0.01); pivot.add(nailMesh);
+    }
+    if (si===0) {
+      const fsColor = FINGER_COLORS[fi];
+      const fsMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(fsColor), roughness:0.3, metalness:0.5, emissive: new THREE.Color(fsColor), emissiveIntensity:0.35 });
+      const fs = new THREE.Mesh(new THREE.BoxGeometry(w*0.55, segLen*sc*0.8, 0.04), fsMat);
+      fs.position.set(0, segLen*sc*0.4, -d/2-0.01); pivot.add(fs);
+    }
+    cumY = segLen*sc;
+    pivots.push({ pivot, mesh:segMesh, len:segLen*sc });
+  });
+  fingerGroups.push({ name:fd.name, masterGrp, pivots });
+});
+
+// Thumb
+const thumbMasterGrp = new THREE.Group();
+thumbMasterGrp.position.set(-1.2, 0.55, 0.1);
+thumbMasterGrp.rotation.z = 0.55; thumbMasterGrp.rotation.y = -0.3; handGroup.add(thumbMasterGrp);
+const thumbPivots = [];
+[[0.36,0.7,0.34],[0.30,0.58,0.28],[0.24,0.44,0.22]].forEach((dim, si) => {
+  const pivot = new THREE.Group();
+  if (si===0) thumbMasterGrp.add(pivot); else thumbPivots[si-1].add(pivot);
+  const segMesh = new THREE.Mesh(new THREE.BoxGeometry(dim[0], dim[1], dim[2]), si===1?skinKnuckleMat:skinMat);
+  segMesh.position.y = dim[1]/2; segMesh.castShadow=true; pivot.add(segMesh);
+  const kn = makeKnuckle(dim[0]*0.55, skinKnuckleMat); kn.position.y = dim[1]; pivot.add(kn);
+  if (si===2) {
+    const nailMesh = new THREE.Mesh(new THREE.BoxGeometry(dim[0]*0.7, dim[1]*0.4, 0.04), nailMat);
+    nailMesh.position.set(0, dim[1]*0.55, dim[2]/2+0.01); pivot.add(nailMesh);
+  }
+  if (si<2) { thumbPivots.push(pivot); pivot.position.y = si===0 ? 0 : dim[1]; }
+  else { if (thumbPivots.length>1) thumbPivots[1].position.y = 0.58; thumbPivots.push(pivot); }
+});
+
+// ESP32 module on back of hand
+const esp32Grp = new THREE.Group(); esp32Grp.position.set(0.3, 0.7, -0.36); handGroup.add(esp32Grp);
+const espBoard = new THREE.Mesh(new THREE.BoxGeometry(1.1,0.08,0.52), new THREE.MeshStandardMaterial({color:0x0d4f1e,roughness:0.4,metalness:0.7})); espBoard.castShadow=true; esp32Grp.add(espBoard);
+const espPCB   = new THREE.Mesh(new THREE.BoxGeometry(1.08,0.04,0.50), new THREE.MeshStandardMaterial({color:0x1a8a3a,roughness:0.3,metalness:0.6})); espPCB.position.y=0.06; esp32Grp.add(espPCB);
+const espModule= new THREE.Mesh(new THREE.BoxGeometry(0.6,0.04,0.36),  new THREE.MeshStandardMaterial({color:0x888888,roughness:0.3,metalness:0.9})); espModule.position.set(-0.1,0.1,0); esp32Grp.add(espModule);
+const led = new THREE.Mesh(new THREE.SphereGeometry(0.04,8,8), new THREE.MeshStandardMaterial({color:0x00ff44,emissive:0x00ff44,emissiveIntensity:2})); led.position.set(0.42,0.12,0.18); esp32Grp.add(led);
+
+// MPU6050
+const mpuGrp = new THREE.Group(); mpuGrp.position.set(-0.55, 0.65, -0.35); handGroup.add(mpuGrp);
+const mpuBoard = new THREE.Mesh(new THREE.BoxGeometry(0.52,0.06,0.38), new THREE.MeshStandardMaterial({color:0x00264d,roughness:0.4,metalness:0.6})); mpuBoard.castShadow=true; mpuGrp.add(mpuBoard);
+const mpuChip  = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.04,0.18), new THREE.MeshStandardMaterial({color:0x333333,roughness:0.3,metalness:0.8})); mpuChip.position.y=0.05; mpuGrp.add(mpuChip);
+
+// Wires
+const wireMaterials = [0x3b82f6, 0x8b5cf6, 0xec4899, 0x22d3ee];
+FINGER_DEFS.forEach((fd, i) => {
+  const pts = [ new THREE.Vector3(fd.x, fd.y+0.05, -0.14), new THREE.Vector3(fd.x*0.7, 1.3, -0.22), new THREE.Vector3(0.3 - 0.3 + i*0.12, 0.78, -0.32) ];
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const geom  = new THREE.TubeGeometry(curve, 14, 0.018, 6, false);
+  const wm = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({color:wireMaterials[i],roughness:0.5}));
+  scene.add(wm);
+});
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(30,30), new THREE.MeshStandardMaterial({color:0x0d1117,roughness:1,metalness:0}));
+floor.rotation.x = -Math.PI/2; floor.position.y = -0.5; floor.receiveShadow=true; scene.add(floor);
+
+let isDragging=false, lastX=0, lastY=0, rotY=0, rotX=0;
+canvas.addEventListener('mousedown', e=>{ isDragging=true; lastX=e.clientX; lastY=e.clientY; });
+window.addEventListener('mouseup', ()=>isDragging=false);
+window.addEventListener('mousemove', e=>{
+  if (!isDragging) return;
+  rotY += (e.clientX-lastX)*0.005;
+  rotX += (e.clientY-lastY)*0.004;
+  rotX = Math.max(-0.5, Math.min(0.6, rotX));
+  lastX=e.clientX; lastY=e.clientY;
+});
+
+let currentAnglesF = { index:0, middle:0, ring:0, pinky:0, thumb:8 };
+let t = 0;
+function lerp(a, b, k) { return a + (b-a)*k; }
+
+function animate() {
+  requestAnimationFrame(animate);
+  t += 0.014;
+
+  // Use live grip values as target angles for the 3D hand
+  const targets = {
+    index:  (liveData.flex.index  / 100) * FINGER_MAX_BEND[0],
+    middle: (liveData.flex.middle / 100) * FINGER_MAX_BEND[1],
+    ring:   (liveData.flex.ring   / 100) * FINGER_MAX_BEND[2],
+    pinky:  (liveData.flex.pinky  / 100) * FINGER_MAX_BEND[3],
+  };
+
+  FINGER_KEYS.forEach(k => { currentAnglesF[k] = lerp(currentAnglesF[k], targets[k], 0.10); });
+  currentAnglesF.thumb = lerp(currentAnglesF.thumb, 8, 0.04);
+
+  fingerGroups.forEach((fg, i) => {
+    const ang = currentAnglesF[FINGER_KEYS[i]] * Math.PI/180;
+    if (fg.pivots[0]) fg.pivots[0].pivot.rotation.x = ang*0.55;
+    if (fg.pivots[1]) { fg.pivots[1].pivot.rotation.x = ang*0.75; fg.pivots[1].pivot.position.y = fg.pivots[0].len; }
+    if (fg.pivots[2]) { fg.pivots[2].pivot.rotation.x = ang*0.65; fg.pivots[2].pivot.position.y = fg.pivots[1] ? fg.pivots[1].len : 0.5; }
+  });
+
+  const tAng = currentAnglesF.thumb * Math.PI/180;
+  if (thumbPivots[0]) thumbPivots[0].rotation.x = tAng*0.5;
+  if (thumbPivots[1]) thumbPivots[1].rotation.x = tAng*0.7;
+
+  handGroup.rotation.y = rotY + Math.sin(t*0.12)*0.10;
+  handGroup.rotation.x = rotX + 0.05;
+  handGroup.position.y = Math.sin(t*0.25)*0.07;
+
+  // Apply wrist tilt from MPU
+  if (connectionStatus === 'live') {
+    handGroup.rotation.x = rotX + 0.05 + (liveData.mpu.pitch * Math.PI/180) * 0.3;
+    handGroup.rotation.z = (liveData.mpu.roll * Math.PI/180) * 0.2;
+  }
+
+  led.material.emissiveIntensity = connectionStatus === 'live'
+    ? 1.5 + Math.sin(t*6)*0.8
+    : 0.2;
+
+  updateGripUI();
+  renderer.render(scene, camera);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HISTORY TAB RENDERING
+   ═══════════════════════════════════════════════════════════════════════════ */
+let historyRange = 30;
+let trendChart = null;
+
+function renderHistory() {
+  const now    = Date.now();
+  const cutoff = now - (historyRange * 24 * 60 * 60 * 1000);
+
+  // Filter by active patient
+  const patientSessions = activePatientId
+    ? allSessions.filter(s => s.patient_id === activePatientId)
+    : allSessions;
+
+  const data = patientSessions.filter(s => s.start_time >= cutoff);
+
+  // Update page subtitle to show patient context
+  const patientName = activePatientId
+    ? (allPatients.find(p => p.id === activePatientId)?.name || 'Active Patient')
+    : 'All Sessions (no patient selected)';
+  document.querySelector('.tab-content-full[data-tab-content="history"] .page-sub').textContent =
+    `Recovery progress for: ${patientName}`;
+
+  // KPI Cards
+  const total   = patientSessions.length;
+  const avgGrip = data.length ? Math.round(data.reduce((a,s) => a + s.avg_grip, 0) / data.length) : 0;
+  const best    = data.length ? Math.max(...data.map(s => s.avg_grip)) : 0;
+  const days    = new Set(data.map(s => new Date(s.start_time).toDateString())).size;
+
+  document.getElementById('kpi-total').textContent = total;
+  document.getElementById('kpi-avg').textContent   = avgGrip + '%';
+  document.getElementById('kpi-best').textContent  = best + '%';
+  document.getElementById('kpi-days').textContent  = days;
+
+  // KPI trends — compare last 7 days to previous 7
+  if (allSessions.length >= 10) {
+    const recent7    = allSessions.filter(s => s.start_time >= now - 7*86400000);
+    const previous7  = allSessions.filter(s => s.start_time >= now - 14*86400000 && s.start_time < now - 7*86400000);
+    if (recent7.length && previous7.length) {
+      const r = recent7.reduce((a,s) => a + s.avg_grip, 0) / recent7.length;
+      const p = previous7.reduce((a,s) => a + s.avg_grip, 0) / previous7.length;
+      const delta = (r - p).toFixed(1);
+      document.getElementById('kpi-avg-trend').textContent = (delta >= 0 ? '+' : '') + delta + '% vs prior week';
+      document.getElementById('kpi-avg-trend').style.color = delta >= 0 ? 'var(--good)' : 'var(--danger)';
+    }
+  }
+
+  // Trend Chart
+  renderTrendChart(data);
+  renderFingerStats(data);
+  renderHeatmap();
+}
+
+function renderTrendChart(data) {
+  const canvas = document.getElementById('trend-chart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  // Group by day
+  const byDay = {};
+  data.forEach(s => {
+    const day = new Date(s.start_time).toDateString();
+    if (!byDay[day]) byDay[day] = [];
+    byDay[day].push(s.avg_grip);
+  });
+  const days = Object.keys(byDay).sort((a,b) => new Date(a) - new Date(b));
+  const points = days.map(d => Math.round(byDay[d].reduce((a,v) => a+v, 0) / byDay[d].length));
+  const labels = days.map(d => new Date(d).toLocaleDateString('en-US', { month:'short', day:'numeric' }));
+
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Avg Grip %',
+        data: points,
+        borderColor: '#388bfd',
+        backgroundColor: 'rgba(56,139,253,0.1)',
+        tension: 0.3,
+        fill: true,
+        pointRadius: 3,
+        pointBackgroundColor: '#388bfd',
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7d8590', font: { family: 'DM Mono' } } },
+        x: { grid: { display: false }, ticks: { color: '#7d8590', font: { family: 'DM Mono', size: 10 } } }
+      }
+    }
+  });
+}
+
+function renderFingerStats(data) {
+  const grid = document.getElementById('finger-stat-grid');
+  if (!data.length) {
+    grid.innerHTML = FINGER_NAMES.map((n,i) => `
+      <div class="finger-stat">
+        <div class="finger-stat-name">${n}</div>
+        <div class="finger-stat-val" style="color:${FINGER_COLORS[i]}">—</div>
+        <div class="finger-stat-trend">No data</div>
+      </div>`).join('');
+    return;
+  }
+
+  grid.innerHTML = FINGER_KEYS.map((k, i) => {
+    const vals = data.map(s => s.per_finger[k]);
+    const avg = Math.round(vals.reduce((a,v) => a+v, 0) / vals.length);
+    return `
+      <div class="finger-stat">
+        <div class="finger-stat-name">${FINGER_NAMES[i]}</div>
+        <div class="finger-stat-val" style="color:${FINGER_COLORS[i]}">${avg}%</div>
+        <div class="finger-stat-trend">across ${vals.length} sessions</div>
+      </div>`;
+  }).join('');
+}
+
+function renderHeatmap() {
+  const grid = document.getElementById('heatmap-grid');
+  const now = new Date();
+  const cells = [];
+
+  // Filter by active patient
+  const patientSessions = activePatientId
+    ? allSessions.filter(s => s.patient_id === activePatientId)
+    : allSessions;
+
+  // Group sessions by date
+  const byDate = {};
+  patientSessions.forEach(s => {
+    const date = new Date(s.start_time).toDateString();
+    if (!byDate[date]) byDate[date] = [];
+    byDate[date].push(s.avg_grip);
+  });
+
+  // Build 75 days (15 cols x 5 rows)
+  for (let i = 74; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const key = d.toDateString();
+    const vals = byDate[key];
+    let color = 'rgba(255,255,255,0.04)';
+    let title = `${d.toLocaleDateString()} — No sessions`;
+    if (vals) {
+      const avg = vals.reduce((a,v) => a+v, 0) / vals.length;
+      const intensity = Math.min(1, avg / 100);
+      const opacity = 0.25 + intensity * 0.75;
+      color = `rgba(63,185,80,${opacity})`;
+      title = `${d.toLocaleDateString()} — ${vals.length} session(s), avg ${Math.round(avg)}%`;
+    }
+    cells.push(`<div class="heatmap-cell" style="background:${color}" title="${title}"></div>`);
+  }
+  grid.innerHTML = cells.join('');
+}
+
+// Range selector
+document.querySelectorAll('.range-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    historyRange = parseInt(btn.dataset.range);
+    renderHistory();
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SESSION LOG TAB RENDERING
+   ═══════════════════════════════════════════════════════════════════════════ */
+let sortKey = 'start_time';
+let sortDir = 'desc';
+let selectedSession = null;
+
+function formatDuration(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m ${s.toString().padStart(2,'0')}s`;
+}
+
+function renderSessions() {
+  const tbody = document.getElementById('sessions-tbody');
+  const count = document.getElementById('session-count');
+
+  // Filter by active patient (or show all if none selected)
+  const filtered = activePatientId
+    ? allSessions.filter(s => s.patient_id === activePatientId)
+    : allSessions;
+
+  const patientLabel = activePatientId
+    ? (allPatients.find(p => p.id === activePatientId)?.name || 'Active Patient')
+    : 'All (no patient selected)';
+
+  count.textContent = filtered.length + (filtered.length === 1 ? ' session' : ' sessions') + ' · ' + patientLabel;
+
+  if (filtered.length === 0) {
+    const helpText = activePatientId
+      ? `No sessions recorded for ${patientLabel} yet`
+      : 'No sessions recorded yet';
+    tbody.innerHTML = `
+      <tr><td colspan="10">
+        <div class="empty-state">
+          <div class="empty-state-icon">📋</div>
+          <div class="empty-state-text">${helpText}</div>
+          <div class="empty-state-sub">Sessions appear here automatically when the glove disconnects</div>
+        </div>
+      </td></tr>`;
+    return;
+  }
+
+  // Sort
+  const sorted = [...filtered].sort((a, b) => {
+    const mult = sortDir === 'asc' ? 1 : -1;
+    if (sortKey === 'exercise')      return mult * a.exercise_type.localeCompare(b.exercise_type);
+    if (sortKey === 'duration')      return mult * (a.duration_seconds - b.duration_seconds);
+    if (sortKey === 'avg_grip')      return mult * (a.avg_grip - b.avg_grip);
+    if (sortKey === 'start_time')    return mult * (a.start_time - b.start_time);
+    if (FINGER_KEYS.includes(sortKey)) return mult * (a.per_finger[sortKey] - b.per_finger[sortKey]);
+    return 0;
+  });
+
+  tbody.innerHTML = sorted.map(s => {
+    const dt = new Date(s.start_time);
+    const st = gripStatus(s.avg_grip);
+    return `
+      <tr data-id="${s.id}" class="${selectedSession?.id === s.id ? 'selected' : ''}">
+        <td class="mono">${dt.toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}</td>
+        <td class="mono">${formatDuration(s.duration_seconds)}</td>
+        <td>${s.exercise_type}</td>
+        <td class="mono" style="color:${gripStatus(s.per_finger.index).color}">${s.per_finger.index}%</td>
+        <td class="mono" style="color:${gripStatus(s.per_finger.middle).color}">${s.per_finger.middle}%</td>
+        <td class="mono" style="color:${gripStatus(s.per_finger.ring).color}">${s.per_finger.ring}%</td>
+        <td class="mono" style="color:${gripStatus(s.per_finger.pinky).color}">${s.per_finger.pinky}%</td>
+        <td class="mono" style="color:${st.color};font-weight:600">${s.avg_grip}%</td>
+        <td><span class="grip-badge ${st.badge}">${st.label}</span></td>
+        <td><button class="row-trash" data-delete="${s.id}">🗑️</button></td>
+      </tr>`;
+  }).join('');
+
+  // Wire up row clicks
+  tbody.querySelectorAll('tr[data-id]').forEach(tr => {
+    tr.addEventListener('click', e => {
+      if (e.target.classList.contains('row-trash') || e.target.closest('.row-trash')) return;
+      const session = allSessions.find(s => s.id === tr.dataset.id);
+      if (session) showDetailPanel(session);
+    });
+  });
+  tbody.querySelectorAll('.row-trash').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = btn.dataset.delete;
+      showModal('Delete This Session?', 'This session will be permanently removed. This action cannot be undone.', () => deleteSession(id));
+    });
+  });
+
+  // Update sort header
+  document.querySelectorAll('.data-table th[data-sort]').forEach(th => {
+    th.classList.toggle('sort-active', th.dataset.sort === sortKey);
+  });
+}
+
+// Sort handlers
+document.querySelectorAll('.data-table th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.sort;
+    if (sortKey === k) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    else { sortKey = k; sortDir = 'desc'; }
+    renderSessions();
+  });
+});
+
+// Detail panel
+function showDetailPanel(session) {
+  selectedSession = session;
+  const dt  = new Date(session.start_time);
+  const st  = gripStatus(session.avg_grip);
+  const body = document.getElementById('detail-body');
+
+  body.innerHTML = `
+    <div class="detail-section">
+      <div class="detail-section-title">Session</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:6px">${dt.toLocaleString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' })}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:24px;font-weight:700;color:${st.color}">${session.avg_grip}%</span>
+        <span class="grip-badge ${st.badge}">${st.label}</span>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-info-grid">
+        <div class="detail-info-cell">
+          <div class="detail-info-label">Duration</div>
+          <div class="detail-info-value mono">${formatDuration(session.duration_seconds)}</div>
+        </div>
+        <div class="detail-info-cell">
+          <div class="detail-info-label">Exercise</div>
+          <div class="detail-info-value">${session.exercise_type}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Per-Finger Breakdown</div>
+      ${FINGER_KEYS.map((k, i) => {
+        const v = session.per_finger[k];
+        const fst = gripStatus(v);
+        return `
+          <div style="background:rgba(13,17,23,0.5);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="width:10px;height:10px;border-radius:50%;background:${FINGER_COLORS[i]}"></div>
+                <span style="font-size:12px;font-weight:500">${FINGER_NAMES[i]}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span class="mono" style="color:${fst.color};font-weight:600;font-size:13px">${v}%</span>
+                <span class="grip-badge ${fst.badge}" style="font-size:9px">${fst.label}</span>
+              </div>
+            </div>
+            <div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${v}%;background:${fst.color};transition:width 0.6s"></div>
+            </div>
+          </div>`;
+      }).join('')}
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Grip Distribution</div>
+      <div style="display:flex;align-items:flex-end;gap:8px;height:80px">
+        ${FINGER_KEYS.map((k, i) => `
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+            <span class="mono" style="font-size:10px;color:${FINGER_COLORS[i]}">${session.per_finger[k]}</span>
+            <div style="width:100%;border-radius:3px 3px 0 0;height:${session.per_finger[k]}%;background:${FINGER_COLORS[i]};opacity:0.75"></div>
+            <span style="font-size:9px;color:var(--muted)">${FINGER_NAMES[i].slice(0,3)}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('detail-panel').classList.add('open');
+}
+
+document.getElementById('detail-close-btn').addEventListener('click', () => {
+  document.getElementById('detail-panel').classList.remove('open');
+  selectedSession = null;
+  document.querySelectorAll('.data-table tr.selected').forEach(r => r.classList.remove('selected'));
+});
+
+document.getElementById('detail-delete-btn').addEventListener('click', () => {
+  if (!selectedSession) return;
+  showModal('Delete This Session?', 'This session will be permanently removed. This action cannot be undone.', async () => {
+    await deleteSession(selectedSession.id);
+    document.getElementById('detail-panel').classList.remove('open');
+    selectedSession = null;
+  });
+});
+
+// Clear all
+document.getElementById('clear-all-btn').addEventListener('click', () => {
+  const n = allSessions.length;
+  if (n === 0) return;
+  showModal(
+    `Clear All ${n} Session${n>1?'s':''}?`,
+    `This will permanently delete all ${n} session${n>1?'s':''} from Firebase. Export a CSV backup first if needed.`,
+    deleteAllSessions
+  );
+});
+
+// Export CSV
+document.getElementById('export-csv-btn').addEventListener('click', () => {
+  if (allSessions.length === 0) return;
+  const headers = ['Date/Time','Duration (s)','Exercise','Index %','Middle %','Ring %','Pinky %','Avg Grip %','Category'];
+  const rows = allSessions.map(s => [
+    new Date(s.start_time).toISOString(),
+    s.duration_seconds,
+    s.exercise_type,
+    s.per_finger.index, s.per_finger.middle, s.per_finger.ring, s.per_finger.pinky,
+    s.avg_grip,
+    gripStatus(s.avg_grip).label
+  ]);
+  const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `rehabglove_sessions_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  pushFeed(`<span class="feed-key">EXPORT:</span> ${allSessions.length} sessions exported to CSV`);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PATIENT MANAGEMENT
+   ═══════════════════════════════════════════════════════════════════════════ */
+function subscribePatients() {
+  if (!db) return;
+  db.ref(PATIENTS_DB_PATH).on('value', snap => {
+    const data = snap.val() || {};
+    allPatients = Object.entries(data).map(([id, p]) => ({ id, ...p }));
+    allPatients.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+
+    const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (activeTab === 'patients') renderPatients();
+    updateActivePatientHeader();
+  });
+
+  db.ref(ACTIVE_PATIENT_PATH).on('value', snap => {
+    activePatientId = snap.val();
+    updateActivePatientHeader();
+    // Refresh session/history when active patient changes
+    const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (activeTab === 'sessions') renderSessions();
+    if (activeTab === 'history')  renderHistory();
+    if (activeTab === 'patients') renderPatients();
+  });
+}
+
+function updateActivePatientHeader() {
+  const badge = document.getElementById('active-patient-badge');
+  const nameEl = document.getElementById('active-patient-name');
+  const activePatient = allPatients.find(p => p.id === activePatientId);
+
+  if (activePatient) {
+    nameEl.textContent = activePatient.name;
+    badge.classList.remove('none');
+  } else {
+    nameEl.textContent = 'No Patient Selected';
+    badge.classList.add('none');
+  }
+  updateCalibrationWarning();
+}
+
+function renderPatients() {
+  const grid    = document.getElementById('patient-grid');
+  const countEl = document.getElementById('patient-count');
+  countEl.textContent = allPatients.length + (allPatients.length === 1 ? ' patient' : ' patients');
+
+  if (allPatients.length === 0) {
+    grid.innerHTML = `
+      <div class="patients-empty">
+        <div class="patients-empty-icon">👥</div>
+        <div class="patients-empty-text">No patients registered yet</div>
+        <div class="patients-empty-sub">Click "Add New Patient" to create the first record</div>
+        <button class="btn btn-primary" onclick="openPatientModal()">+ Add New Patient</button>
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = `<div class="patient-grid">${allPatients.map(p => {
+    const isActive = p.id === activePatientId;
+    const shortId  = p.id.slice(0, 8);
+    const injuryDate = p.date_of_injury ? new Date(p.date_of_injury).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' }) : '—';
+    const hasWifi = !!(p.wifi_ssid);
+    const isCalibrated = !!p.last_calibrated_at;
+    const calibratedAgo = isCalibrated
+      ? formatTimeAgo(p.last_calibrated_at)
+      : null;
+
+    return `
+      <div class="patient-card ${isActive ? 'active' : ''}" data-patient-id="${p.id}">
+        <div class="patient-name">${escapeHtml(p.name)}
+          <span class="calib-badge ${isCalibrated ? 'calibrated' : 'uncalibrated'}">
+            ${isCalibrated ? '✓ Calibrated' : '⚠ Not Calibrated'}
+          </span>
+        </div>
+        <div class="patient-id">ID: ${shortId}${calibratedAgo ? ' · Calibrated ' + calibratedAgo : ''}</div>
+
+        <div class="patient-info-grid">
+          <div class="patient-info-cell">
+            <div class="patient-info-label">Age</div>
+            <div class="patient-info-value">${p.age || '—'}</div>
+          </div>
+          <div class="patient-info-cell">
+            <div class="patient-info-label">Gender</div>
+            <div class="patient-info-value">${p.gender || '—'}</div>
+          </div>
+          <div class="patient-info-cell">
+            <div class="patient-info-label">Affected Side</div>
+            <div class="patient-info-value">${p.affected_side || '—'}</div>
+          </div>
+          <div class="patient-info-cell">
+            <div class="patient-info-label">Date of Injury</div>
+            <div class="patient-info-value">${injuryDate}</div>
+          </div>
+        </div>
+
+        <div class="patient-diagnosis">${escapeHtml(p.diagnosis || 'No diagnosis recorded')}</div>
+
+        ${p.therapist ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Therapist: <span style="color:var(--text)">${escapeHtml(p.therapist)}</span></div>` : ''}
+
+        <!-- WiFi Status -->
+        <div style="font-size:11px;margin-bottom:12px;padding:8px 10px;border-radius:6px;${hasWifi ? 'background:rgba(63,185,80,0.08);color:var(--good);border:1px solid rgba(63,185,80,0.2)' : 'background:rgba(210,153,34,0.08);color:var(--warning);border:1px solid rgba(210,153,34,0.2)'}">
+          ${hasWifi
+            ? `📡 Home WiFi: <strong style="font-family:'DM Mono',monospace">${escapeHtml(p.wifi_ssid)}</strong>`
+            : `⚠️ Home WiFi not configured`}
+        </div>
+
+        <div class="patient-actions">
+          ${isActive
+            ? `<button class="btn" disabled>● Active</button>`
+            : `<button class="btn btn-success" onclick="setActivePatient('${p.id}')">Set Active</button>`}
+          <button class="btn btn-primary" onclick="setActivePatient('${p.id}').then(()=>setTimeout(triggerCalibration,200))" title="Calibrate the smart glove for this patient">📐</button>
+          <button class="btn btn-primary" onclick="showWifiProvisioning('${p.id}')" title="Show WiFi setup instructions">📡</button>
+          <button class="btn" onclick="openPatientModal('${p.id}')">Edit</button>
+          <button class="btn btn-danger" onclick="confirmDeletePatient('${p.id}')">🗑️</button>
+        </div>
+      </div>
+    `;
+  }).join('')}</div>`;
+}
+
+function formatTimeAgo(ts) {
+  const now = Date.now();
+  const diff = now - ts;
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+function openPatientModal(patientId = null) {
+  editingPatientId = patientId;
+  const modal = document.getElementById('patient-modal-backdrop');
+  const title = document.getElementById('patient-modal-title');
+
+  if (patientId) {
+    const p = allPatients.find(pp => pp.id === patientId);
+    if (!p) return;
+    title.textContent = 'Edit Patient';
+    document.getElementById('pf-name').value = p.name || '';
+    document.getElementById('pf-age').value = p.age || '';
+    document.getElementById('pf-gender').value = p.gender || '';
+    document.getElementById('pf-diagnosis').value = p.diagnosis || '';
+    document.getElementById('pf-side').value = p.affected_side || '';
+    document.getElementById('pf-injury-date').value = p.date_of_injury || '';
+    document.getElementById('pf-therapist').value = p.therapist || '';
+    document.getElementById('pf-notes').value = p.notes || '';
+    document.getElementById('pf-wifi-ssid').value = p.wifi_ssid || '';
+    document.getElementById('pf-wifi-pass').value = p.wifi_password || '';
+    document.getElementById('pf-wifi-security').value = p.wifi_security || 'WPA2';
+  } else {
+    title.textContent = 'Add New Patient';
+    document.getElementById('patient-form').reset();
+    document.getElementById('pf-wifi-security').value = 'WPA2';
+  }
+
+  // Reset password visibility
+  document.getElementById('pf-wifi-pass').type = 'password';
+  document.getElementById('pf-wifi-eye').textContent = '👁️';
+
+  modal.classList.add('open');
+  setTimeout(() => document.getElementById('pf-name').focus(), 100);
+}
+
+function togglePasswordVisibility() {
+  const input = document.getElementById('pf-wifi-pass');
+  const eye = document.getElementById('pf-wifi-eye');
+  if (input.type === 'password') {
+    input.type = 'text';
+    eye.textContent = '🙈';
+  } else {
+    input.type = 'password';
+    eye.textContent = '👁️';
+  }
+}
+
+function closePatientModal() {
+  document.getElementById('patient-modal-backdrop').classList.remove('open');
+  editingPatientId = null;
+}
+
+async function savePatient(e) {
+  if (e) e.preventDefault();
+  if (!db) { alert('Firebase unavailable. Cannot save patient.'); return; }
+
+  const name = document.getElementById('pf-name').value.trim();
+  const diagnosis = document.getElementById('pf-diagnosis').value.trim();
+  if (!name || !diagnosis) { alert('Name and Diagnosis are required.'); return; }
+
+  const data = {
+    name,
+    age: document.getElementById('pf-age').value || null,
+    gender: document.getElementById('pf-gender').value || null,
+    diagnosis,
+    affected_side: document.getElementById('pf-side').value || null,
+    date_of_injury: document.getElementById('pf-injury-date').value || null,
+    therapist: document.getElementById('pf-therapist').value.trim() || null,
+    notes: document.getElementById('pf-notes').value.trim() || null,
+    wifi_ssid: document.getElementById('pf-wifi-ssid').value.trim() || null,
+    wifi_password: document.getElementById('pf-wifi-pass').value || null,
+    wifi_security: document.getElementById('pf-wifi-security').value || 'WPA2',
+  };
+
+  if (editingPatientId) {
+    await db.ref(`${PATIENTS_DB_PATH}/${editingPatientId}`).update(data);
+    pushFeed(`<span class="feed-key">PATIENT:</span> Updated ${name}`);
+  } else {
+    data.created_at = Date.now();
+    const ref = db.ref(PATIENTS_DB_PATH).push();
+    await ref.set(data);
+    pushFeed(`<span class="feed-key">PATIENT:</span> Added new patient ${name}`);
+
+    // Auto-set as active if no patient is currently active
+    if (!activePatientId) {
+      await db.ref(ACTIVE_PATIENT_PATH).set(ref.key);
+    }
+  }
+  closePatientModal();
+}
+
+async function setActivePatient(id) {
+  if (!db) return;
+  await db.ref(ACTIVE_PATIENT_PATH).set(id);
+  const p = allPatients.find(pp => pp.id === id);
+  if (p) pushFeed(`<span class="feed-key">PATIENT:</span> Active patient set to ${p.name}`);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CALIBRATION SYSTEM
+   ═══════════════════════════════════════════════════════════════════════════ */
+let calibrationActive = false;
+let calibrationTimers = [];
+
+async function triggerCalibration() {
+  if (calibrationActive) return;
+  if (!activePatientId) {
+    showModal('No Active Patient', 'Please set an active patient before calibrating the glove.', () => {
+      switchTab('patients');
+    });
+    return;
+  }
+
+  const patient = allPatients.find(p => p.id === activePatientId);
+  if (!patient) return;
+
+  // Open the calibration modal
+  calibrationActive = true;
+  document.getElementById('calib-patient-name').textContent = patient.name;
+  resetCalibrationUI();
+  document.getElementById('calib-modal-backdrop').classList.add('open');
+
+  // ── ROUTING: USB takes priority when connected ──
+  let triggerSent = false;
+
+  if (serialState.connected) {
+    triggerSent = await sendSerialCommand('<CALIBRATE>');
+    if (triggerSent) {
+      pushFeed(`<span class="feed-key">CALIB:</span> Triggered via USB for ${patient.name}`);
+    }
+  } else if (db) {
+    try {
+      await db.ref(CALIB_TRIGGER).set(true);
+      pushFeed(`<span class="feed-key">CALIB:</span> Triggered via Firebase for ${patient.name}`);
+      triggerSent = true;
+    } catch (e) {
+      pushFeed(`<span class="feed-key">CALIB:</span> ❌ Firebase trigger failed`);
+    }
+  }
+
+  if (!triggerSent) {
+    failCalibration('Neither USB nor Firebase connected. Please connect first.');
+    return;
+  }
+
+  // Run the visual sequence (matches firmware timing for both paths)
+  runCalibrationSequence(patient);
+}
+
+// Subscribe to calibration status updates from ESP32 firmware
+function subscribeCalibrationStatus() {
+  if (!db) return;
+  db.ref(CALIB_STATUS).on('value', snap => {
+    const status = snap.val();
+    if (!status) return;
+    const msg = `<span class="feed-key">FW:</span> Calibration ${status.status}: ${status.message}`;
+    pushFeed(msg);
+
+    if (calibrationActive) {
+      if (status.status === 'success') {
+        // Sequence completes on its own timing
+      } else if (status.status === 'failed') {
+        failCalibration(status.message || 'Firmware reported failure');
+      }
+    }
+  });
+}
+
+function resetCalibrationUI() {
+  for (let i = 0; i <= 3; i++) {
+    const step = document.getElementById('calib-step-' + i);
+    step.classList.remove('active', 'done', 'failed');
+    document.getElementById('calib-countdown-' + i).textContent = i === 1 || i === 2 ? '3' : '—';
+  }
+  document.getElementById('calib-progress').style.width = '0%';
+  document.getElementById('calib-title').textContent = 'Calibrating Smart Glove';
+  document.getElementById('calib-cancel-btn').style.display = 'inline-flex';
+  document.getElementById('calib-done-btn').style.display = 'none';
+}
+
+function runCalibrationSequence(patient) {
+  const totalDuration = 12000; // ms: 3s wait + 3s open + 3s fist + 3s save
+  const startTs = Date.now();
+
+  // Progress bar animation
+  const progressInterval = setInterval(() => {
+    const elapsed = Date.now() - startTs;
+    const pct = Math.min(100, (elapsed / totalDuration) * 100);
+    document.getElementById('calib-progress').style.width = pct + '%';
+    if (pct >= 100) clearInterval(progressInterval);
+  }, 100);
+  calibrationTimers.push(progressInterval);
+
+  // Step 0: Trigger sent (1.5s window for ESP32 to poll)
+  setStepActive(0);
+
+  calibrationTimers.push(setTimeout(() => {
+    setStepDone(0);
+
+    // Step 1: Open hand (3 seconds with countdown)
+    setStepActive(1);
+    let count1 = 3;
+    document.getElementById('calib-countdown-1').textContent = count1;
+    pushFeed(`<span class="feed-key">CALIB:</span> Step 1 — Open hand (3s)`);
+
+    const tick1 = setInterval(() => {
+      count1--;
+      document.getElementById('calib-countdown-1').textContent = Math.max(0, count1);
+      if (count1 <= 0) clearInterval(tick1);
+    }, 1000);
+    calibrationTimers.push(tick1);
+  }, 1500));
+
+  // Step 2: Closed fist (after 1.5s + 3s = 4.5s)
+  calibrationTimers.push(setTimeout(() => {
+    setStepDone(1);
+    setStepActive(2);
+
+    let count2 = 3;
+    document.getElementById('calib-countdown-2').textContent = count2;
+    pushFeed(`<span class="feed-key">CALIB:</span> Step 2 — Closed fist (3s)`);
+
+    const tick2 = setInterval(() => {
+      count2--;
+      document.getElementById('calib-countdown-2').textContent = Math.max(0, count2);
+      if (count2 <= 0) clearInterval(tick2);
+    }, 1000);
+    calibrationTimers.push(tick2);
+  }, 4500));
+
+  // Step 3: Validation and save (after 1.5s + 3s + 3s = 7.5s)
+  calibrationTimers.push(setTimeout(() => {
+    setStepDone(2);
+    setStepActive(3);
+    pushFeed(`<span class="feed-key">CALIB:</span> Step 3 — Validating and saving to flash`);
+  }, 7500));
+
+  // Complete (after 9s)
+  calibrationTimers.push(setTimeout(() => {
+    setStepDone(3);
+    completeCalibration(patient);
+  }, 9000));
+}
+
+function setStepActive(idx) {
+  const step = document.getElementById('calib-step-' + idx);
+  step.classList.remove('done', 'failed');
+  step.classList.add('active');
+}
+
+function setStepDone(idx) {
+  const step = document.getElementById('calib-step-' + idx);
+  step.classList.remove('active', 'failed');
+  step.classList.add('done');
+  document.getElementById('calib-countdown-' + idx).textContent = '✓';
+}
+
+async function completeCalibration(patient) {
+  document.getElementById('calib-title').textContent = '✓ Calibration Complete!';
+  document.getElementById('calib-progress').style.width = '100%';
+  document.getElementById('calib-cancel-btn').style.display = 'none';
+  document.getElementById('calib-done-btn').style.display = 'inline-flex';
+
+  // Update patient profile with calibration timestamp
+  if (db && patient) {
+    try {
+      await db.ref(`${PATIENTS_DB_PATH}/${patient.id}/last_calibrated_at`).set(Date.now());
+      pushFeed(`<span class="feed-key">CALIB:</span> ✅ ${patient.name} calibrated successfully`);
+    } catch (e) {
+      console.warn('Could not update calibration timestamp', e);
+    }
+  }
+
+  calibrationActive = false;
+  calibrationTimers.forEach(t => { clearTimeout(t); clearInterval(t); });
+  calibrationTimers = [];
+  updateCalibrationWarning();
+}
+
+function failCalibration(reason) {
+  document.getElementById('calib-title').textContent = '❌ Calibration Failed';
+  document.getElementById('calib-subtitle').textContent = reason || 'Please try again';
+  // Mark current active step as failed
+  for (let i = 0; i <= 3; i++) {
+    const step = document.getElementById('calib-step-' + i);
+    if (step.classList.contains('active')) {
+      step.classList.remove('active');
+      step.classList.add('failed');
+      document.getElementById('calib-countdown-' + i).textContent = '✕';
+      break;
+    }
+  }
+  document.getElementById('calib-cancel-btn').textContent = 'Close';
+  calibrationActive = false;
+  calibrationTimers.forEach(t => { clearTimeout(t); clearInterval(t); });
+  calibrationTimers = [];
+}
+
+function cancelCalibration() {
+  calibrationTimers.forEach(t => { clearTimeout(t); clearInterval(t); });
+  calibrationTimers = [];
+  calibrationActive = false;
+  // Try to reset the trigger
+  if (db) db.ref(CALIB_TRIGGER).set(false).catch(() => {});
+  closeCalibrationModal();
+  pushFeed(`<span class="feed-key">CALIB:</span> Cancelled by operator`);
+}
+
+function closeCalibrationModal() {
+  document.getElementById('calib-modal-backdrop').classList.remove('open');
+  document.getElementById('calib-cancel-btn').textContent = 'Cancel';
+  document.getElementById('calib-subtitle').innerHTML = 'For: <span id="calib-patient-name">—</span>';
+}
+
+document.getElementById('calib-modal-backdrop').addEventListener('click', e => {
+  if (e.target.id === 'calib-modal-backdrop' && !calibrationActive) closeCalibrationModal();
+});
+
+function updateCalibrationWarning() {
+  const banner = document.getElementById('calib-warning-banner');
+  if (!activePatientId) { banner.classList.add('hide'); return; }
+  const patient = allPatients.find(p => p.id === activePatientId);
+  if (!patient) { banner.classList.add('hide'); return; }
+  const isCalibrated = !!patient.last_calibrated_at;
+  banner.classList.toggle('hide', isCalibrated);
+}
+
+/* ── WIFI PROVISIONING MODAL ────────────────────────────────────────────── */
+let currentProvisioningPatient = null;
+
+function showWifiProvisioning(patientId) {
+  const p = allPatients.find(pp => pp.id === patientId);
+  if (!p) return;
+  currentProvisioningPatient = p;
+  const content = document.getElementById('wifi-modal-content');
+
+  const hasWifi = !!(p.wifi_ssid);
+
+  if (!hasWifi) {
+    content.innerHTML = `
+      <div style="background:rgba(210,153,34,0.08);border:1px solid rgba(210,153,34,0.2);border-radius:8px;padding:14px;color:var(--warning);font-size:13px">
+        ⚠️ <strong>No WiFi credentials saved</strong> for ${escapeHtml(p.name)}.
+        <br><br>
+        Click <strong>Edit</strong> on the patient card to add their home WiFi network so the glove can be provisioned for at-home use.
+      </div>`;
+    document.getElementById('wifi-copy-btn').style.display = 'none';
+    document.getElementById('wifi-modal-backdrop').classList.add('open');
+    return;
+  }
+
+  document.getElementById('wifi-copy-btn').style.display = 'inline-flex';
+
+  const usbConnected = serialState.connected;
+
+  content.innerHTML = `
+    <div style="margin-bottom:16px;font-size:13px;color:var(--text)">
+      Provision <strong>${escapeHtml(p.name)}</strong>'s smart glove with their home WiFi credentials:
+    </div>
+
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px">
+      <div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;font-weight:600">
+        📡 Home WiFi Credentials
+      </div>
+      <div style="display:grid;gap:10px;font-family:'DM Mono',monospace;font-size:13px">
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px">Network Name (SSID)</div>
+          <div style="background:var(--bg);padding:8px 12px;border-radius:6px;color:var(--good);user-select:all">${escapeHtml(p.wifi_ssid)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px">Password</div>
+          <div style="background:var(--bg);padding:8px 12px;border-radius:6px;color:var(--good);user-select:all;display:flex;align-items:center;justify-content:space-between">
+            <span id="wifi-pass-display">••••••••••••</span>
+            <button onclick="toggleProvisioningPass(this)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 4px">👁️</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px">Security</div>
+          <div style="background:var(--bg);padding:8px 12px;border-radius:6px;color:var(--text)">${escapeHtml(p.wifi_security || 'WPA2')}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- USB Provisioning Section -->
+    <div class="usb-write-section">
+      <div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;font-weight:600">
+        🔌 Write WiFi to Glove via USB
+      </div>
+      <div style="font-size:12px;color:var(--text);margin-bottom:10px;line-height:1.5">
+        ${usbConnected
+          ? `Plug the glove into your laptop and click below. The credentials will be written to the glove's flash memory over USB — no captive portal needed.`
+          : `<strong style="color:var(--warning)">⚠️ USB not connected.</strong> Click <strong>🔌 Connect USB Glove</strong> in the header first to enable this feature.`}
+      </div>
+      <button class="btn btn-primary" id="wifi-usb-write-btn" onclick="writeWifiToGlove('${p.id}')" ${usbConnected ? '' : 'disabled'} style="width:100%">
+        ${usbConnected ? '🔌 Write WiFi to Glove via USB' : '🔌 Connect USB Glove First'}
+      </button>
+      <div class="usb-write-status" id="wifi-usb-write-status"></div>
+    </div>
+
+    <details style="margin-top:14px;font-size:11px;color:var(--muted)">
+      <summary style="cursor:pointer;padding:6px 0">📋 Manual provisioning steps (fallback)</summary>
+      <div style="margin-top:8px;line-height:1.6;padding-left:14px">
+        If USB is unavailable, the patient can manually provision the glove from their phone using the WiFiManager portal — though this requires the older firmware (v5 or earlier). With v6, USB is the only provisioning path.
+      </div>
+    </details>
+  `;
+
+  document.getElementById('wifi-modal-backdrop').classList.add('open');
+}
+
+function toggleProvisioningPass(btn) {
+  const span = document.getElementById('wifi-pass-display');
+  if (span.textContent.includes('•')) {
+    span.textContent = currentProvisioningPatient?.wifi_password || '';
+    btn.textContent = '🙈';
+  } else {
+    span.textContent = '••••••••••••';
+    btn.textContent = '👁️';
+  }
+}
+
+function closeWifiModal() {
+  document.getElementById('wifi-modal-backdrop').classList.remove('open');
+  currentProvisioningPatient = null;
+}
+
+async function copyWifiDetails() {
+  const p = currentProvisioningPatient;
+  if (!p) return;
+  const text = `RehabGlove WiFi Provisioning for ${p.name}
+================================================
+Network (SSID):  ${p.wifi_ssid}
+Password:        ${p.wifi_password}
+Security:        ${p.wifi_security || 'WPA2'}
+
+Setup Steps:
+1. Power on smart glove
+2. Connect phone to "SmartGlove_Setup" (pw: rehabglove)
+3. Captive portal opens automatically
+4. Tap "Configure WiFi" and enter credentials above
+5. Glove will restart and connect to home WiFi
+`;
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = document.getElementById('wifi-copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  } catch (e) {
+    alert('Could not copy to clipboard. Please select and copy manually.');
+  }
+}
+
+document.getElementById('wifi-modal-backdrop').addEventListener('click', e => {
+  if (e.target.id === 'wifi-modal-backdrop') closeWifiModal();
+});
+
+function confirmDeletePatient(id) {
+  const p = allPatients.find(pp => pp.id === id);
+  if (!p) return;
+  showModal(
+    'Delete Patient?',
+    `Permanently delete "${p.name}" and all their session data? This cannot be undone.`,
+    async () => {
+      if (!db) return;
+      await db.ref(`${PATIENTS_DB_PATH}/${id}`).remove();
+      await db.ref(`${PATIENT_PATH}/sessions_by_patient/${id}`).remove();
+      if (activePatientId === id) await db.ref(ACTIVE_PATIENT_PATH).set(null);
+      pushFeed(`<span class="feed-key">PATIENT:</span> Deleted ${p.name}`);
+    }
+  );
+}
+
+// Wire up modal buttons
+document.getElementById('add-patient-btn').addEventListener('click', () => openPatientModal());
+document.getElementById('patient-cancel').addEventListener('click', closePatientModal);
+document.getElementById('patient-save').addEventListener('click', savePatient);
+document.getElementById('patient-form').addEventListener('submit', savePatient);
+document.getElementById('patient-modal-backdrop').addEventListener('click', e => {
+  if (e.target.id === 'patient-modal-backdrop') closePatientModal();
+});
+document.getElementById('active-patient-badge').addEventListener('click', () => switchTab('patients'));
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SYSTEM RESET — Nuclear option to wipe all Firebase data
+   ═══════════════════════════════════════════════════════════════════════════ */
+function openResetModal() {
+  // Update count badges to show what will be deleted
+  document.getElementById('reset-count-patients').textContent = allPatients.length;
+  document.getElementById('reset-count-sessions').textContent = allSessions.length;
+
+  // Reset modal state
+  document.getElementById('reset-confirm-input').value = '';
+  document.getElementById('reset-confirm-btn').disabled = true;
+  document.getElementById('reset-progress').style.display = 'none';
+  document.getElementById('reset-log').innerHTML = '';
+  document.getElementById('reset-cancel-btn').textContent = 'Cancel';
+  document.getElementById('reset-cancel-btn').className = 'btn';
+  document.getElementById('reset-cancel-btn').disabled = false;
+  document.getElementById('reset-confirm-input').disabled = false;
+
+  document.getElementById('reset-modal-backdrop').classList.add('open');
+  setTimeout(() => document.getElementById('reset-confirm-input').focus(), 100);
+}
+
+function closeResetModal() {
+  document.getElementById('reset-modal-backdrop').classList.remove('open');
+}
+
+// Enable confirm button only when "RESET" is typed exactly
+document.getElementById('reset-confirm-input').addEventListener('input', e => {
+  const matches = e.target.value === 'RESET';
+  document.getElementById('reset-confirm-btn').disabled = !matches;
+});
+
+// Allow Enter key to confirm when valid
+document.getElementById('reset-confirm-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.value === 'RESET') {
+    performSystemReset();
+  }
+});
+
+function resetLog(msg, type = 'info') {
+  const log = document.getElementById('reset-log');
+  const color = type === 'success' ? 'var(--good)' : type === 'error' ? 'var(--danger)' : 'var(--muted)';
+  const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : '·';
+  log.innerHTML += `<div style="color:${color}">${icon} ${msg}</div>`;
+  log.scrollTop = log.scrollHeight;
+}
+
+async function performSystemReset() {
+  if (!db) {
+    alert('Firebase unavailable. Cannot reset.');
+    return;
+  }
+
+  // Show progress, hide input, disable buttons
+  document.getElementById('reset-progress').style.display = 'block';
+  document.getElementById('reset-confirm-input').disabled = true;
+  document.getElementById('reset-confirm-btn').disabled = true;
+  document.getElementById('reset-cancel-btn').disabled = true;
+
+  const log = document.getElementById('reset-log');
+  log.innerHTML = '';
+
+  const tasks = [
+    { path: '/clinic/patients',                   label: 'patient records' },
+    { path: '/clinic/active_patient_id',          label: 'active patient pointer' },
+    { path: '/patients/patient_001/sessions',     label: 'archived sessions' },
+    { path: '/patients/patient_001/live_session', label: 'live sensor data' },
+    { path: '/system/calibration_trigger',        label: 'calibration trigger' },
+    { path: '/system/calibration_status',         label: 'calibration status' },
+  ];
+
+  let successCount = 0;
+  let errorCount = 0;
+
+  for (const task of tasks) {
+    resetLog(`Deleting ${task.path}...`, 'info');
+    try {
+      await db.ref(task.path).remove();
+      resetLog(`Cleared ${task.label}`, 'success');
+      successCount++;
+    } catch (e) {
+      resetLog(`Failed to clear ${task.label}: ${e.message}`, 'error');
+      errorCount++;
+    }
+    // Small delay so user can see progress
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  // Final summary
+  await new Promise(r => setTimeout(r, 400));
+  if (errorCount === 0) {
+    resetLog(`✅ System reset complete — ${successCount} paths cleared`, 'success');
+    pushFeed(`<span class="feed-key">RESET:</span> All Firebase data wiped successfully`);
+  } else {
+    resetLog(`⚠️ Completed with ${errorCount} errors`, 'error');
+  }
+
+  // Reset local UI state
+  allPatients = [];
+  allSessions = [];
+  activePatientId = null;
+  selectedSession = null;
+  currentSession = { startTs: 0, samples: [] };
+  bendAngles.fill(0);
+  Object.keys(liveData.flex).forEach(k => liveData.flex[k] = 0);
+  liveData.mpu = { acc_x: 0, acc_y: 9.81, acc_z: 0, pitch: 0, roll: 0, yaw: 0 };
+
+  // Re-render visible tabs
+  updateActivePatientHeader();
+  renderPatients();
+  renderSessions();
+  renderHistory();
+
+  // Re-enable buttons and change to "Done"
+  document.getElementById('reset-cancel-btn').disabled = false;
+  document.getElementById('reset-cancel-btn').textContent = '✓ Done';
+  document.getElementById('reset-cancel-btn').className = 'btn btn-success';
+}
+
+// Wire up the Reset System button
+document.getElementById('reset-system-btn').addEventListener('click', openResetModal);
+
+// Close modal when clicking backdrop (but not during reset)
+document.getElementById('reset-modal-backdrop').addEventListener('click', e => {
+  if (e.target.id === 'reset-modal-backdrop' && !document.getElementById('reset-cancel-btn').disabled) {
+    closeResetModal();
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════════════════════ */
+buildGripCards();
+buildSliders();
+// Sliders now ALWAYS visible (manual demo controls)
+resizeRenderer();
+window.addEventListener('resize', resizeRenderer);
+subscribeLiveSession();
+subscribeSessions();
+subscribePatients();
+subscribeCalibrationStatus();
+animate();
+pushFeed('<span class="feed-key">INIT:</span> Dashboard ready · Dual-mode (USB + Firebase)');
+pushFeed('<span class="feed-key">TIP:</span> Click 🔌 Connect USB Glove for direct serial connection');
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CLOSED-LOOP DATA — log demo activity every 2 seconds, auto-archive after idle
+   ═══════════════════════════════════════════════════════════════════════════ */
+let lastSliderActivityTs = 0;
+let lastFeedLogTs = 0;
+let lastSampleTs = 0;
+
+setInterval(() => {
+  const now = Date.now();
+  const usbLive = serialState.connected && (now - serialState.lastDataTs < 1000);
+  const fbLive = (now - firebaseLastDataTs < 1000);
+  const liveDataActive = usbLive || fbLive;
+  const active = isUsingSliders();
+
+  // Track sample every 250ms while sliders are non-zero (manual demo only)
+  if (active && !liveDataActive && now - lastSampleTs > 250) {
+    lastSampleTs = now;
+    lastSliderActivityTs = now;
+
+    if (currentSession.startTs === 0) {
+      currentSession.startTs = now;
+      currentSession.samples = [];
+    }
+    currentSession.samples.push({ ...liveData.flex });
+  }
+
+  // Log to feed every 2 seconds when active (and no live data)
+  if (active && !liveDataActive && now - lastFeedLogTs > 2000) {
+    lastFeedLogTs = now;
+    const f = liveData.flex;
+    pushFeed(`<span class="feed-key">DEMO:</span> I:${f.index}% M:${f.middle}% R:${f.ring}% P:${f.pinky}%`);
+  }
+
+  // Auto-archive demo session after 8s of inactivity (sliders only)
+  if (!active && !liveDataActive && currentSession.samples.length > 5 && now - lastSliderActivityTs > 8000) {
+    pushFeed(`<span class="feed-key">AUTO:</span> Idle detected — archiving demo session`);
+    archiveSession();
+  }
+}, 250);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AUTO-REFRESH VISIBLE TABS — keeps history/sessions in sync
+   ═══════════════════════════════════════════════════════════════════════════ */
+setInterval(() => {
+  const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+  if (activeTab === 'history')  renderHistory();
+  if (activeTab === 'sessions' && !selectedSession) renderSessions();
+}, 3000);
+</script>
+</body>
+</html>
